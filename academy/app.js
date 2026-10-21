@@ -15,8 +15,8 @@ const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   }
 });
 
-// Client separado usado SOMENTE para criar usuÃ¡rios.
-// NÃ£o persiste sessÃ£o, entÃ£o nÃ£o substitui a sessÃ£o do admin logado.
+// Client separado usado SOMENTE para criar usuários.
+// Não persiste sessão, então não substitui a sessão do admin logado.
 const dbSignup = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     storage: window.sessionStorage,
@@ -91,20 +91,20 @@ function onAvatarFileSelected(event) {
   if (!file) return;
 
   if (file.size > 5 * 1024 * 1024) {
-    showMessage('Imagem muito grande. MÃ¡ximo 5MB.', 'error');
+    showMessage('Imagem muito grande. Máximo 5MB.', 'error');
     event.target.value = '';
     return;
   }
 
   const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
   if (!validTypes.includes(file.type)) {
-    showMessage('Formato invÃ¡lido. Use JPG, PNG ou WEBP.', 'error');
+    showMessage('Formato inválido. Use JPG, PNG ou WEBP.', 'error');
     event.target.value = '';
     return;
   }
 
   selectedAvatarFile = file;
-  document.getElementById('avatar-file-name').textContent = 'âœ“ ' + file.name;
+  document.getElementById('avatar-file-name').textContent = '✓ ' + file.name;
   document.getElementById('avatar-save-btn').disabled = false;
 
   const reader = new FileReader();
@@ -121,7 +121,7 @@ async function saveAvatar() {
 
   const btn = document.getElementById('avatar-save-btn');
   btn.disabled = true;
-  btn.textContent = 'Enviandoâ€¦';
+  btn.textContent = 'Enviando…';
 
   try {
     const ext = selectedAvatarFile.name.split('.').pop().toLowerCase();
@@ -150,7 +150,7 @@ async function saveAvatar() {
     currentProfile.avatar_url = publicUrl;
     applyAvatarToUI(currentProfile.full_name || currentUser.email, publicUrl);
 
-    showMessage('Foto atualizada! âœ…', 'success');
+    showMessage('Foto atualizada! ✅', 'success');
     closeAvatarModal();
 
   } catch (e) {
@@ -203,7 +203,7 @@ function updateThemeIcon() {
   const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
   const icon = document.getElementById('theme-icon');
   const btn = document.getElementById('theme-toggle');
-  if (icon) icon.textContent = isDark ? 'â˜€ï¸' : 'ðŸŒ™';
+  if (icon) icon.textContent = isDark ? '☀️' : '🌙';
   if (btn) btn.title = isDark ? 'Ativar tema claro' : 'Ativar tema escuro';
 }
 
@@ -236,7 +236,7 @@ function roleLabel(role) {
 function goToPDI() { window.location.href = PDI_URL; }
 
 /**
- * Converte qualquer URL de vÃ­deo (YouTube, Vimeo, Google Drive) para o formato de embed.
+ * Converte qualquer URL de vídeo (YouTube, Vimeo, Google Drive) para o formato de embed.
  */
 function getVideoEmbedUrl(url) {
   if (!url) return null;
@@ -251,7 +251,7 @@ function getVideoEmbedUrl(url) {
   return null;
 }
 
-// ==================== NAVEGAÃ‡ÃƒO ====================
+// ==================== NAVEGAÇÃO ====================
 function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');
   document.getElementById('sidebar-overlay').classList.toggle('open');
@@ -269,7 +269,6 @@ function renderView(view) {
   switch (view) {
     case 'home':         main.innerHTML = renderHome(); break;
     case 'empresa':      main.innerHTML = renderEmpresa(); break;
-    case 'library':      renderLibraryView(); break;
     case 'mycourses':    main.innerHTML = renderMyCourses(); break;
     case 'catalog':      main.innerHTML = renderCatalog(); break;
     case 'certificates': main.innerHTML = renderCertificates(); break;
@@ -279,6 +278,8 @@ function renderView(view) {
     case 'dashboard':    renderDashboard(); break;
     case 'points':       renderPointsManagement(); break;
     case 'prizes':       renderPrizesView(); break;
+    case 'library':      renderLibraryView(); break;
+    case 'librarylogs':  renderLibraryLogsView(); break;
     default:             main.innerHTML = renderHome();
   }
 }
@@ -302,7 +303,7 @@ async function boot() {
 async function loadUser() {
   const { data: profile, error } = await db.from('profiles').select('*').eq('id', currentUser.id).single();
   if (error || !profile) {
-    showMessage('Perfil nÃ£o encontrado. Redirecionandoâ€¦', 'error');
+    showMessage('Perfil não encontrado. Redirecionando…', 'error');
     setTimeout(() => { window.location.href = PDI_URL; }, 2500);
     return;
   }
@@ -338,10 +339,16 @@ async function loadUser() {
     document.getElementById('add-user-btn').classList.remove('hidden');
   }
 
+// Biblioteca — apenas Master administra
+  isLibraryAdmin = isMaster;
+  if (isLibraryAdmin) {
+    document.getElementById('nav-library-logs')?.classList.remove('hidden');
+  }
+
   if (isMaster) {
     document.getElementById('nu-master-wrap').classList.remove('hidden');
   }
-  // Dashboard executivo â€” VERAQUI somente Diretoria/Master
+  // Dashboard executivo — VERAQUI somente Diretoria/Master
   if (isMaster || isDiretor) {
     const navDash = document.getElementById('nav-dashboard');
     if (navDash) navDash.classList.remove('hidden');
@@ -356,7 +363,7 @@ async function loadUser() {
   renderView('home');
 }
 async function logout() {
-  if (!confirm('Sair da CDE Academy? VocÃª serÃ¡ redirecionado para o PDI.')) return;
+  if (!confirm('Sair da CDE Academy? Você será redirecionado para o PDI.')) return;
   await db.auth.signOut();
   window.location.href = PDI_URL;
 }
@@ -378,14 +385,14 @@ async function loadTopbarPoints() {
     const total = pdi + acad + adj - gastos;
     document.getElementById('topbar-points').textContent = `${total} pts`;
     document.getElementById('topbar-points').title =
-      `PDI: ${pdi} Â· Academy: ${acad} Â· Ajustes: ${adj} Â· Resgates: -${gastos}`;
+      `PDI: ${pdi} · Academy: ${acad} · Ajustes: ${adj} · Resgates: -${gastos}`;
   } catch (e) {
     document.getElementById('topbar-points').textContent = '0 pts';
   }
 }
 
 /**
- * Retorna o saldo detalhado de qualquer usuÃ¡rio.
+ * Retorna o saldo detalhado de qualquer usuário.
  * { disponivel, ganhoTotal, gasto, pdi, academy, ajustes, resgates }
  */
 async function getUserPointsBalance(userId) {
@@ -449,24 +456,24 @@ async function calcCourseProgress(userId, courseId) {
 // ==================== VIEWS DO ALUNO ====================
 function renderHome() {
   const enrolled = filterCourses(myEnrollments);
-  const heroCourse = allCourses[0] || { title: 'Bem-vindo Ã  CDE Academy', description: 'Explore os cursos e desenvolva suas habilidades.' };
+  const heroCourse = allCourses[0] || { title: 'Bem-vindo à CDE Academy', description: 'Explore os cursos e desenvolva suas habilidades.' };
   return `
     <section class="hero-banner">
       <div class="hero-content">
-        <span class="hero-tag">âœ¨ Destaque</span>
+        <span class="hero-tag">✨ Destaque</span>
         <h1>${escapeHtml(heroCourse.title)}</h1>
         <p>${escapeHtml(heroCourse.description)}</p>
-        <button class="hero-btn" onclick="switchView('catalog')">Explorar cursos â†’</button>
+        <button class="hero-btn" onclick="switchView('catalog')">Explorar cursos →</button>
       </div>
     </section>
     <div class="section-header">
-      <h2>Cursos para vocÃª fazer</h2>
-      <span class="section-sub">Treinamentos liberados para vocÃª</span>
+      <h2>Cursos para você fazer</h2>
+      <span class="section-sub">Treinamentos liberados para você</span>
     </div>
-    ${enrolled.length === 0 ? renderEmpty('ðŸ“­', 'Nenhum curso liberado ainda. Aguarde seu supervisor.') : `<div class="courses-grid">${enrolled.map(renderCourseCard).join('')}</div>`}
+    ${enrolled.length === 0 ? renderEmpty('📭', 'Nenhum curso liberado ainda. Aguarde seu supervisor.') : `<div class="courses-grid">${enrolled.map(renderCourseCard).join('')}</div>`}
     ${allCourses.length > 0 && enrolled.length < allCourses.length ? `
       <div class="section-header">
-        <h2>CatÃ¡logo completo</h2>
+        <h2>Catálogo completo</h2>
         <span class="section-sub">${allCourses.length} curso${allCourses.length === 1 ? '' : 's'}</span>
       </div>
       <div class="courses-grid">${allCourses.filter(c => !myEnrollments.some(e => e.course.id === c.id)).slice(0, 6).map(c => renderCatalogCard(c)).join('')}</div>
@@ -475,26 +482,26 @@ function renderHome() {
 }
 function renderMyCourses() {
   const enrolled = filterCourses(myEnrollments);
-  if (enrolled.length === 0) return `<div class="section-header"><h2>Meus Cursos</h2></div>${renderEmpty('ðŸ“š', 'VocÃª ainda nÃ£o estÃ¡ matriculado em nenhum curso.')}`;
+  if (enrolled.length === 0) return `<div class="section-header"><h2>Meus Cursos</h2></div>${renderEmpty('📚', 'Você ainda não está matriculado em nenhum curso.')}`;
   return `<div class="section-header"><h2>Meus Cursos</h2><span class="section-sub">${enrolled.length} curso${enrolled.length === 1 ? '' : 's'}</span></div><div class="courses-grid">${enrolled.map(renderCourseCard).join('')}</div>`;
 }
 function renderCatalog() {
   let courses = allCourses.filter(c => c.is_published !== false);
   if (searchTerm) courses = courses.filter(c => (c.title || '').toLowerCase().includes(searchTerm) || (c.description || '').toLowerCase().includes(searchTerm));
-  if (courses.length === 0) return `<div class="section-header"><h2>CatÃ¡logo de Cursos</h2></div>${renderEmpty('ðŸ”', searchTerm ? 'Nenhum curso encontrado.' : 'Nenhum curso publicado ainda.')}`;
-  return `<div class="section-header"><h2>CatÃ¡logo de Cursos</h2><span class="section-sub">${courses.length} disponÃ­ve${courses.length === 1 ? 'l' : 'is'}</span></div><div class="courses-grid">${courses.map(c => renderCatalogCard(c)).join('')}</div>`;
+  if (courses.length === 0) return `<div class="section-header"><h2>Catálogo de Cursos</h2></div>${renderEmpty('🔍', searchTerm ? 'Nenhum curso encontrado.' : 'Nenhum curso publicado ainda.')}`;
+  return `<div class="section-header"><h2>Catálogo de Cursos</h2><span class="section-sub">${courses.length} disponíve${courses.length === 1 ? 'l' : 'is'}</span></div><div class="courses-grid">${courses.map(c => renderCatalogCard(c)).join('')}</div>`;
 }
 function renderCertificates() {
-  if (completions.length === 0) return `<div class="section-header"><h2>Certificados</h2></div>${renderEmpty('ðŸŽ“', 'VocÃª ainda nÃ£o concluiu nenhum curso.')}`;
+  if (completions.length === 0) return `<div class="section-header"><h2>Certificados</h2></div>${renderEmpty('🎓', 'Você ainda não concluiu nenhum curso.')}`;
   return `<div class="section-header"><h2>Certificados</h2><span class="section-sub">${completions.length} conquistado${completions.length === 1 ? '' : 's'}</span></div>
     <div class="courses-grid">${completions.map(c => `
       <div class="course-card" style="cursor:default;">
-        <div class="course-cover" style="background: linear-gradient(135deg, #158A49 0%, #0E6B39 100%);">ðŸŽ“<span class="course-badge concluido">ConcluÃ­do</span></div>
+        <div class="course-cover" style="background: linear-gradient(135deg, #158A49 0%, #0E6B39 100%);">🎓<span class="course-badge concluido">Concluído</span></div>
         <div class="course-body">
           <h3>${escapeHtml(c.academy_courses?.title || 'Curso')}</h3>
           <p>Emitido em ${new Date(c.completed_at).toLocaleDateString('pt-BR')}.</p>
-          <div class="course-meta"><span class="tag">ðŸ”‘ ${escapeHtml(c.certificate_code || 'â€”')}</span></div>
-          <button class="btn-success" style="margin-top: 12px; padding: 10px;" onclick="openCertificateModal('${c.course_id}')">ðŸ“¥ Baixar Certificado</button>
+          <div class="course-meta"><span class="tag">🔑 ${escapeHtml(c.certificate_code || '—')}</span></div>
+          <button class="btn-success" style="margin-top: 12px; padding: 10px;" onclick="openCertificateModal('${c.course_id}')">📥 Baixar Certificado</button>
         </div>
       </div>
     `).join('')}</div>`;
@@ -513,13 +520,13 @@ function renderReport() {
   return `
     <div class="section-header"><h2>Meu Desempenho</h2></div>
     <div class="stats-grid">
-      ${statCard('Cursos matriculados', totalEnrolled, 'var(--roxo-medio)', 'ðŸ“š')}
-      ${statCard('ConcluÃ­dos', completed, 'var(--verde)', 'âœ…')}
-      ${statCard('Em andamento', inProgress, 'var(--cde-laranja)', 'â³')}
-      ${statCard('Taxa de conclusÃ£o', completionRate + '%', 'var(--cde-vermelho)', 'ðŸ“ˆ')}
+      ${statCard('Cursos matriculados', totalEnrolled, 'var(--roxo-medio)', '📚')}
+      ${statCard('Concluídos', completed, 'var(--verde)', '✅')}
+      ${statCard('Em andamento', inProgress, 'var(--cde-laranja)', '⏳')}
+      ${statCard('Taxa de conclusão', completionRate + '%', 'var(--cde-vermelho)', '📈')}
     </div>
     <div style="background: var(--branco); border-radius:14px; padding:22px; border:1px solid var(--cinza-borda);">
-      <h3 style="font-size: 1rem; margin-bottom: 14px;">ðŸ“Š Progresso por curso</h3>
+      <h3 style="font-size: 1rem; margin-bottom: 14px;">📊 Progresso por curso</h3>
       ${totalEnrolled === 0 ? '<p style="color: var(--texto-soft);">Sem cursos.</p>' :
         myEnrollments.map(e => `
           <div style="padding: 12px 0; border-bottom: 1px solid var(--cinza-borda); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
@@ -540,45 +547,45 @@ function renderEmpresa() {
   return `
     <section class="hero-banner" style="min-height:200px;">
       <div class="hero-content">
-        <span class="hero-tag">ðŸ¢ Sobre nÃ³s</span>
+        <span class="hero-tag">🏢 Sobre nós</span>
         <h1>Nossa Empresa</h1>
-        <p>ConheÃ§a um pouco da histÃ³ria, dos valores e da trajetÃ³ria da CDE Blindex, a Ãºnica BLINDEXÂ® da RegiÃ£o Norte!</p>
+        <p>Conheça um pouco da história, dos valores e da trajetória da CDE Blindex, a única BLINDEX® da Região Norte!</p>
       </div>
     </section>
 
     <div class="section-header">
-      <h2>Nossa HistÃ³ria</h2>
-      <span class="section-sub">ConheÃ§a nossa diretora Kilze Krauss</span>
+      <h2>Nossa História</h2>
+      <span class="section-sub">Conheça nossa diretora Kilze Krauss</span>
     </div>
 
     <div style="background: var(--branco); border-radius:14px; padding:26px; border:1px solid var(--cinza-borda); box-shadow: var(--sombra-sm); margin-bottom:26px;">
       <p style="font-size:0.95rem; color:var(--texto-soft); line-height:1.75; margin-bottom:16px;">
-        Sua trajetÃ³ria se confunde com a prÃ³pria histÃ³ria da CDE BlindexÂ®, que completa quase 50 anos de mercado e se consolidou como referÃªncia em soluÃ§Ãµes de vidros modernos para a regiÃ£o.
+        Sua trajetória se confunde com a própria história da CDE Blindex®, que completa quase 50 anos de mercado e se consolidou como referência em soluções de vidros modernos para a região.
       </p>
       <p style="font-size:0.95rem; color:var(--texto-soft); line-height:1.75; margin-bottom:16px;">
-        Kilze ocupa um lugar singular: Ã© a Ãºnica mulher no comando de uma linha de tÃªmpera de vidros no estado do Amazonas, o que a torna nÃ£o apenas uma gestora de destaque, mas tambÃ©m uma referÃªncia para outras mulheres que sonham em ocupar espaÃ§os de lideranÃ§a em setores tradicionalmente masculinos. Sua atuaÃ§Ã£o firme, visionÃ¡ria e inspiradora mostra que competÃªncia e sensibilidade podem caminhar juntas na construÃ§Ã£o de resultados sÃ³lidos.
+        Kilze ocupa um lugar singular: é a única mulher no comando de uma linha de têmpera de vidros no estado do Amazonas, o que a torna não apenas uma gestora de destaque, mas também uma referência para outras mulheres que sonham em ocupar espaços de liderança em setores tradicionalmente masculinos. Sua atuação firme, visionária e inspiradora mostra que competência e sensibilidade podem caminhar juntas na construção de resultados sólidos.
       </p>
       <p style="font-size:0.95rem; color:var(--texto-soft); line-height:1.75;">
-        Durante seus mais de 10 anos de lideranÃ§a, Kilze Krauss foi responsÃ¡vel por transformar a CDE BlindexÂ® em um verdadeiro polo de excelÃªncia. Uma de suas principais conquistas foi a associaÃ§Ã£o da empresa Ã  marca BlindexÂ®, lÃ­der mundial em soluÃ§Ãµes em vidros de seguranÃ§a e design, o que elevou ainda mais o padrÃ£o de qualidade e credibilidade da companhia perante clientes e parceiros. AlÃ©m disso, investiu fortemente em marketing, comunicaÃ§Ã£o e educaÃ§Ã£o do mercado, posicionando a CDE BlindexÂ® como uma empresa prÃ³xima, transparente e comprometida com a inovaÃ§Ã£o.
+        Durante seus mais de 10 anos de liderança, Kilze Krauss foi responsável por transformar a CDE Blindex® em um verdadeiro polo de excelência. Uma de suas principais conquistas foi a associação da empresa à marca Blindex®, líder mundial em soluções em vidros de segurança e design, o que elevou ainda mais o padrão de qualidade e credibilidade da companhia perante clientes e parceiros. Além disso, investiu fortemente em marketing, comunicação e educação do mercado, posicionando a CDE Blindex® como uma empresa próxima, transparente e comprometida com a inovação.
       </p>
     </div>
 
     <div class="section-header">
-      <h2>Nossa TrajetÃ³ria em Imagens</h2>
+      <h2>Nossa Trajetória em Imagens</h2>
     </div>
 
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:18px; margin-bottom:26px;">
       <figure style="background: var(--branco); border-radius:14px; overflow:hidden; border:1px solid var(--cinza-borda); box-shadow:var(--sombra-sm);">
         <img src="${IMG_1}" alt="Marca CDE" style="width:100%; height:240px; object-fit:cover; display:block; background: var(--branco);">
         <figcaption style="padding:14px 16px; font-size:0.85rem; color:var(--texto-soft); font-weight:600;">
-          Ã€ frente da CDE BlindexÂ® hÃ¡ mais de uma dÃ©cada, Kilze Krauss tem conduzido a empresa por um caminho de inovaÃ§Ã£o, qualidade e lideranÃ§a no setor de vidros no Amazonas.
+          À frente da CDE Blindex® há mais de uma década, Kilze Krauss tem conduzido a empresa por um caminho de inovação, qualidade e liderança no setor de vidros no Amazonas.
         </figcaption>
       </figure>
 
       <figure style="background: var(--branco); border-radius:14px; overflow:hidden; border:1px solid var(--cinza-borda); box-shadow:var(--sombra-sm);">
         <img src="${IMG_2}" alt="Nossa equipe" style="width:100%; height:240px; object-fit:cover; display:block;">
         <figcaption style="padding:14px 16px; font-size:0.85rem; color:var(--texto-soft); font-weight:600;">
-          Kilze acredita que o maior patrimÃ´nio da CDE BlindexÂ® sÃ£o as pessoas. Por isso, dedica atenÃ§Ã£o especial Ã  valorizaÃ§Ã£o da equipe, investindo em treinamentos, integraÃ§Ã£o e no desenvolvimento contÃ­nuo de seus colaboradores. Para ela, qualidade comeÃ§a dentro de casa, com profissionais motivados, engajados e orgulhosos de fazer parte da histÃ³ria da empresa. Essa visÃ£o humanizada Ã© um dos diferenciais de sua gestÃ£o e uma das razÃµes pelas quais a CDE BlindexÂ® mantÃ©m uma posiÃ§Ã£o de destaque no mercado.
+          Kilze acredita que o maior patrimônio da CDE Blindex® são as pessoas. Por isso, dedica atenção especial à valorização da equipe, investindo em treinamentos, integração e no desenvolvimento contínuo de seus colaboradores. Para ela, qualidade começa dentro de casa, com profissionais motivados, engajados e orgulhosos de fazer parte da história da empresa. Essa visão humanizada é um dos diferenciais de sua gestão e uma das razões pelas quais a CDE Blindex® mantém uma posição de destaque no mercado.
         </figcaption>
       </figure>
     </div>
@@ -595,9 +602,9 @@ function renderEmpresa() {
 
 function renderValoresCards() {
   const valores = [
-    { emoji: 'ðŸ¤', titulo: 'MissÃ£o',      desc: 'Fabricar vidros BLINDEXÂ® com qualidade, proporcionando seguranÃ§a Ã s pessoas.' },
-    { emoji: 'ðŸŽ¯', titulo: 'VisÃ£o',       desc: 'Ser referÃªncia em vidros de qualidade no AMAZONAS' },
-    { emoji: 'ðŸŒ±', titulo: 'Valores',     desc: 'ExcelÃªncia e Qualidade | Respeito aos clientes, parceiros e colaboradores | Integridade | SeguranÃ§a.' }
+    { emoji: '🤝', titulo: 'Missão',      desc: 'Fabricar vidros BLINDEX® com qualidade, proporcionando segurança às pessoas.' },
+    { emoji: '🎯', titulo: 'Visão',       desc: 'Ser referência em vidros de qualidade no AMAZONAS' },
+    { emoji: '🌱', titulo: 'Valores',     desc: 'Excelência e Qualidade | Respeito aos clientes, parceiros e colaboradores | Integridade | Segurança.' }
   ];
   let html = '';
   for (const v of valores) {
@@ -619,19 +626,19 @@ function filterCourses(list) {
 function renderCourseCard(enrollment) {
   const c = enrollment.course; const p = enrollment.progress;
   let badgeClass = 'novo', badgeText = 'Novo';
-  if (p.pct >= 100) { badgeClass = 'concluido'; badgeText = 'ConcluÃ­do'; }
+  if (p.pct >= 100) { badgeClass = 'concluido'; badgeText = 'Concluído'; }
   else if (p.pct > 0) { badgeClass = 'progresso'; badgeText = p.pct + '%'; }
   const coverStyle = c.cover_url ? `background-image: url('${escapeHtml(c.cover_url)}'); background-size: cover; background-position: center;` : '';
-  const coverContent = c.cover_url ? '' : 'ðŸ“˜';
+  const coverContent = c.cover_url ? '' : '📘';
   return `
     <div class="course-card" onclick="openCourseModal('${c.id}')">
       <div class="course-cover" style="${coverStyle}"><span class="course-badge ${badgeClass}">${badgeText}</span>${coverContent}</div>
       <div class="course-body">
         <h3>${escapeHtml(c.title)}</h3>
-        <p>${escapeHtml(c.description || 'Sem descriÃ§Ã£o.')}</p>
+        <p>${escapeHtml(c.description || 'Sem descrição.')}</p>
         <div class="course-meta">
-          <span class="tag">â± ${c.workload_hours || 1}h</span>
-          ${c.sector ? `<span class="tag">ðŸ· ${escapeHtml(c.sector)}</span>` : ''}
+          <span class="tag">⏱ ${c.workload_hours || 1}h</span>
+          ${c.sector ? `<span class="tag">🏷 ${escapeHtml(c.sector)}</span>` : ''}
         </div>
         <div class="course-progress"><div class="course-progress-fill" style="width:${p.pct}%"></div></div>
       </div>
@@ -639,16 +646,16 @@ function renderCourseCard(enrollment) {
 }
 function renderCatalogCard(course) {
   const coverStyle = course.cover_url ? `background-image: url('${escapeHtml(course.cover_url)}'); background-size: cover; background-position: center;` : '';
-  const coverContent = course.cover_url ? '' : 'ðŸ“˜';
+  const coverContent = course.cover_url ? '' : '📘';
   return `
     <div class="course-card" onclick="openCourseModal('${course.id}')">
-      <div class="course-cover" style="${coverStyle}"><span class="course-badge">CatÃ¡logo</span>${coverContent}</div>
+      <div class="course-cover" style="${coverStyle}"><span class="course-badge">Catálogo</span>${coverContent}</div>
       <div class="course-body">
         <h3>${escapeHtml(course.title)}</h3>
-        <p>${escapeHtml(course.description || 'Sem descriÃ§Ã£o.')}</p>
+        <p>${escapeHtml(course.description || 'Sem descrição.')}</p>
         <div class="course-meta">
-          <span class="tag">â± ${course.workload_hours || 1}h</span>
-          ${course.sector ? `<span class="tag">ðŸ· ${escapeHtml(course.sector)}</span>` : ''}
+          <span class="tag">⏱ ${course.workload_hours || 1}h</span>
+          ${course.sector ? `<span class="tag">🏷 ${escapeHtml(course.sector)}</span>` : ''}
         </div>
       </div>
     </div>`;
@@ -660,11 +667,11 @@ async function openCourseModal(courseId) {
   const enrollment = myEnrollments.find(e => e.course.id === courseId);
   if (enrollment) course = enrollment.course;
   else course = allCourses.find(c => c.id === courseId);
-  if (!course) return showMessage('Curso nÃ£o encontrado.', 'error');
+  if (!course) return showMessage('Curso não encontrado.', 'error');
   selectedCourse = { course, enrollment };
 
   document.getElementById('cm-title').textContent = course.title;
-  document.getElementById('cm-subtitle').textContent = `${course.workload_hours || 1}h${course.sector ? ' â€¢ ' + course.sector : ''}`;
+  document.getElementById('cm-subtitle').textContent = `${course.workload_hours || 1}h${course.sector ? ' • ' + course.sector : ''}`;
 
   let modules = [];
   try {
@@ -674,29 +681,29 @@ async function openCourseModal(courseId) {
 
   const body = document.getElementById('cm-body');
   if (modules.length === 0) {
-    body.innerHTML = `<p style="color: var(--texto-soft); font-size: 0.9rem;">${escapeHtml(course.description || 'ConteÃºdo em preparaÃ§Ã£o.')}</p>`;
+    body.innerHTML = `<p style="color: var(--texto-soft); font-size: 0.9rem;">${escapeHtml(course.description || 'Conteúdo em preparação.')}</p>`;
   } else {
     let html = `<p style="color: var(--texto-soft); font-size: 0.9rem; margin-bottom: 16px;">${escapeHtml(course.description || '')}</p>`;
     if (enrollment) {
       const { data: prog } = await db.from('academy_progress').select('lesson_id').eq('user_id', currentUser.id);
       const doneSet = new Set((prog || []).map(p => p.lesson_id));
-      html += `<div style="font-size: 0.8rem; font-weight: 700; color: var(--texto-soft); text-transform: uppercase; margin-bottom: 10px;">ConteÃºdo do curso</div>`;
+      html += `<div style="font-size: 0.8rem; font-weight: 700; color: var(--texto-soft); text-transform: uppercase; margin-bottom: 10px;">Conteúdo do curso</div>`;
       for (const m of modules) {
-        html += `<div style="font-weight: 700; font-size: 0.85rem; margin: 14px 0 8px;">ðŸ“¦ ${escapeHtml(m.title)}</div>`;
+        html += `<div style="font-weight: 700; font-size: 0.85rem; margin: 14px 0 8px;">📦 ${escapeHtml(m.title)}</div>`;
         const { data: lessons } = await db.from('academy_lessons').select('*').eq('module_id', m.id).order('order_index');
         (lessons || []).forEach(l => {
           const done = doneSet.has(l.id);
-          const icons = { pdf: 'ðŸ“„', video: 'ðŸŽ¬', slides: 'ðŸ“Š', image: 'ðŸ–¼ï¸', text: 'ðŸ“' };
+          const icons = { pdf: '📄', video: '🎬', slides: '📊', image: '🖼️', text: '📝' };
           html += `
             <div style="padding: 10px 12px; background: ${done ? 'var(--verde-bg)' : 'var(--cinza-bg)'}; border-radius: 10px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; gap: 10px; cursor: pointer;" onclick="closeCourseModal(); openLessonPlayer('${course.id}','${l.id}')">
               <div style="display: flex; align-items: center; gap: 10px;">
-                <span style="font-size: 1.1rem;">${done ? 'âœ…' : (icons[l.content_type] || 'ðŸ“„')}</span>
+                <span style="font-size: 1.1rem;">${done ? '✅' : (icons[l.content_type] || '📄')}</span>
                 <div>
                   <div style="font-weight: 600; font-size: 0.88rem;">${escapeHtml(l.title)}</div>
-                  ${l.has_quiz ? '<div style="font-size: 0.7rem; color: var(--cde-laranja-escuro); font-weight: 700;">ðŸ“ COM QUIZ</div>' : ''}
+                  ${l.has_quiz ? '<div style="font-size: 0.7rem; color: var(--cde-laranja-escuro); font-weight: 700;">📝 COM QUIZ</div>' : ''}
                 </div>
               </div>
-              <span style="color: var(--cde-laranja-escuro); font-weight: 700; font-size: 0.85rem;">${done ? 'Rever' : 'Abrir'} â†’</span>
+              <span style="color: var(--cde-laranja-escuro); font-weight: 700; font-size: 0.85rem;">${done ? 'Rever' : 'Abrir'} →</span>
             </div>`;
         });
       }
@@ -708,7 +715,7 @@ async function openCourseModal(courseId) {
 
   const btn = document.getElementById('cm-action');
   if (enrollment) {
-    btn.textContent = 'Ver primeira aula â†’';
+    btn.textContent = 'Ver primeira aula →';
     btn.onclick = async () => {
       closeCourseModal();
       const allLessons = await getAllLessonsOfCourse(course.id);
@@ -718,8 +725,8 @@ async function openCourseModal(courseId) {
       if (next) openLessonPlayer(course.id, next.id);
     };
   } else {
-    btn.textContent = 'Ver detalhes â†’';
-    btn.onclick = () => showMessage('PeÃ§a ao seu supervisor para matricular vocÃª neste curso.', 'info');
+    btn.textContent = 'Ver detalhes →';
+    btn.onclick = () => showMessage('Peça ao seu supervisor para matricular você neste curso.', 'info');
   }
   document.getElementById('course-modal').classList.remove('hidden');
 }
@@ -741,7 +748,7 @@ async function getAllLessonsOfCourse(courseId) {
 // ==================== PLAYER DE AULA ====================
 async function openLessonPlayer(courseId, lessonId) {
   const course = allCourses.find(c => c.id === courseId) || (myEnrollments.find(e => e.course.id === courseId)?.course);
-  if (!course) return showMessage('Curso nÃ£o encontrado.', 'error');
+  if (!course) return showMessage('Curso não encontrado.', 'error');
   playerCourse = course;
   playerLessons = await getAllLessonsOfCourse(courseId);
   playerIndex = playerLessons.findIndex(l => l.id === lessonId);
@@ -756,7 +763,7 @@ async function renderLessonInPlayer() {
 
   document.getElementById('player-lesson-title').textContent = lesson.title;
   document.getElementById('player-course-title').textContent = playerCourse.title;
-  const typeLabel = { pdf: 'PDF', video: 'VÃ­deo', slides: 'Slides', image: 'Imagem', text: 'Texto' }[lesson.content_type] || 'Aula';
+  const typeLabel = { pdf: 'PDF', video: 'Vídeo', slides: 'Slides', image: 'Imagem', text: 'Texto' }[lesson.content_type] || 'Aula';
   document.getElementById('player-lesson-badge').textContent = typeLabel;
 
   const pct = playerLessons.length > 0 ? Math.round(((playerIndex + 1) / playerLessons.length) * 100) : 0;
@@ -768,11 +775,11 @@ async function renderLessonInPlayer() {
   const { data: existing } = await db.from('academy_progress').select('*').eq('user_id', currentUser.id).eq('lesson_id', lesson.id).maybeSingle();
   const btnComplete = document.getElementById('btn-complete-lesson');
   if (existing) {
-    btnComplete.textContent = 'âœ… Aula concluÃ­da';
+    btnComplete.textContent = '✅ Aula concluída';
     btnComplete.classList.add('done');
     btnComplete.disabled = true;
   } else {
-    btnComplete.textContent = 'âœ“ Marcar como concluÃ­da';
+    btnComplete.textContent = '✓ Marcar como concluída';
     btnComplete.classList.remove('done');
     btnComplete.disabled = false;
   }
@@ -809,7 +816,7 @@ async function renderLessonInPlayer() {
   } else if (type === 'image' && lesson.content_url) {
     contentHtml = `<div class="content-viewer"><img src="${escapeHtml(lesson.content_url)}" alt="${escapeHtml(lesson.title)}"></div>`;
   } else {
-    contentHtml = `<div class="content-viewer"><div class="text-content">${lesson.content_text || '<p>Sem conteÃºdo.</p>'}</div></div>`;
+    contentHtml = `<div class="content-viewer"><div class="text-content">${lesson.content_text || '<p>Sem conteúdo.</p>'}</div></div>`;
   }
 
   let quizHtml = '';
@@ -834,8 +841,8 @@ async function renderLessonInPlayer() {
       }
       quizHtml = `
         <div class="quiz-block">
-          <h3>ðŸ“ Quiz de FixaÃ§Ã£o</h3>
-          <div class="quiz-sub">Responda todas as perguntas. A nota mÃ­nima Ã© 70%.</div>
+          <h3>📝 Quiz de Fixação</h3>
+          <div class="quiz-sub">Responda todas as perguntas. A nota mínima é 70%.</div>
           ${qParts.join('')}
           <button class="btn-primary" style="margin-top: 12px; width: 100%; padding: 12px;" onclick="submitPlayerQuiz()">Enviar Respostas</button>
           <div id="player-quiz-result"></div>
@@ -896,7 +903,7 @@ async function completeCurrentLesson() {
   }, { onConflict: 'user_id,lesson_id' });
 
   await upsertLessonView(lesson.id, true);
-  showMessage('Aula concluÃ­da! âœ…', 'success');
+  showMessage('Aula concluída! ✅', 'success');
 
   const hasNext = playerIndex < playerLessons.length - 1;
   if (hasNext) {
@@ -930,7 +937,7 @@ async function submitPlayerQuiz() {
   const passed = pct >= 70;
   const resultArea = document.getElementById('player-quiz-result');
   resultArea.innerHTML = `<div class="player-result ${passed ? 'pass' : 'fail'}">
-    ${passed ? 'ðŸŽ‰' : 'ðŸ˜•'} VocÃª acertou ${correct}/${questions.length} (${pct}%). ${passed ? 'Aula concluÃ­da!' : 'Nota mÃ­nima: 70%. Tente novamente.'}
+    ${passed ? '🎉' : '😕'} Você acertou ${correct}/${questions.length} (${pct}%). ${passed ? 'Aula concluída!' : 'Nota mínima: 70%. Tente novamente.'}
   </div>`;
 
   if (passed) {
@@ -943,7 +950,7 @@ async function submitPlayerQuiz() {
 
     await upsertLessonView(lesson.id, true);
     const btnComplete = document.getElementById('btn-complete-lesson');
-    btnComplete.textContent = 'âœ… Aula concluÃ­da';
+    btnComplete.textContent = '✅ Aula concluída';
     btnComplete.classList.add('done');
     btnComplete.disabled = true;
     await checkCourseCompletion();
@@ -1005,8 +1012,8 @@ async function checkCourseCompletion() {
 
   showMessage(
     allPerfect
-      ? `ðŸŽ‰ Curso concluÃ­do com 100%! +${points} pontos (5 + 2 de bÃ´nus).`
-      : `ðŸŽ‰ Curso concluÃ­do! +${points} pontos.`,
+      ? `🎉 Curso concluído com 100%! +${points} pontos (5 + 2 de bônus).`
+      : `🎉 Curso concluído! +${points} pontos.`,
     'success'
   );
 
@@ -1016,9 +1023,9 @@ async function checkCourseCompletion() {
 // ==================== CERTIFICADO ====================
 async function openCertificateModal(courseId) {
   const course = allCourses.find(c => c.id === courseId) || (myEnrollments.find(e => e.course.id === courseId)?.course);
-  if (!course) return showMessage('Curso nÃ£o encontrado.', 'error');
+  if (!course) return showMessage('Curso não encontrado.', 'error');
   const { data: completion } = await db.from('academy_completions').select('*').eq('user_id', currentUser.id).eq('course_id', courseId).maybeSingle();
-  if (!completion) return showMessage('Certificado nÃ£o disponÃ­vel ainda.', 'error');
+  if (!completion) return showMessage('Certificado não disponível ainda.', 'error');
   certificateData = { completion, course };
   document.getElementById('cert-course-title').textContent = course.title;
   document.getElementById('cert-student-name').textContent = currentProfile.full_name || currentUser.email;
@@ -1083,10 +1090,10 @@ function drawBlindexVector(doc, x, y, size) {
   doc.setFillColor(...RED);
   doc.rect(x, y, size, size, 'F');
 
-  // ===================== TAMANHO DE FONTE DINÃ‚MICO =====================
-  // A diagonal do quadrado Ã© `size * âˆš2`. Queremos que "BLINDEX" preencha
-  // ~88% dessa diagonal, entÃ£o calculamos o tamanho de fonte ideal
-  // iterando com `getTextWidth()` atÃ© convergir.
+  // ===================== TAMANHO DE FONTE DINÂMICO =====================
+  // A diagonal do quadrado é `size * √2`. Queremos que "BLINDEX" preencha
+  // ~88% dessa diagonal, então calculamos o tamanho de fonte ideal
+  // iterando com `getTextWidth()` até convergir.
   const diagonal = size * Math.SQRT2;
   const targetWidth = diagonal * 0.88;
 
@@ -1094,7 +1101,7 @@ function drawBlindexVector(doc, x, y, size) {
   let fontSize = size * 0.5;
   doc.setFontSize(fontSize);
 
-  // 5 iteraÃ§Ãµes de convergÃªncia jÃ¡ bastam
+  // 5 iterações de convergência já bastam
   for (let i = 0; i < 5; i++) {
     const w = doc.getTextWidth('BLINDEX');
     if (w <= 0) break;
@@ -1111,7 +1118,7 @@ function drawBlindexVector(doc, x, y, size) {
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(fontSize);
 
-  // CompensaÃ§Ã£o do baseline
+  // Compensação do baseline
   const fontMm = fontSize * 0.3528;
   const baselineShift = fontMm * 0.35;
   const adjX = -baselineShift * Math.SQRT1_2;
@@ -1119,9 +1126,9 @@ function drawBlindexVector(doc, x, y, size) {
 
   doc.text('BLINDEX', cx + adjX, cy + adjY, { align: 'center', angle: 45 });
 
-  // Â® no canto superior direito
+  // ® no canto superior direito
   doc.setFontSize(size * 0.16);
-  doc.text('Â®', x + size * 0.85, y + size * 0.20, { align: 'center' });
+  doc.text('®', x + size * 0.85, y + size * 0.20, { align: 'center' });
 
   doc.restoreGraphicsState();
 }
@@ -1147,7 +1154,7 @@ async function downloadCertificate() {
   const nome = currentProfile.full_name || currentUser.email;
 
   // ==========================================================
-  // PÃGINA 1 â€” CERTIFICADO
+  // PÁGINA 1 — CERTIFICADO
   // ==========================================================
   doc.setFillColor(255, 255, 255);
   doc.rect(0, 0, W, H, 'F');
@@ -1161,7 +1168,7 @@ async function downloadCertificate() {
         doc.addImage(logoDataUrl, 'PNG', (W - wmW) / 2, (H - wmH) / 2 + 10, wmW, wmH);
         doc.setGState(new doc.GState({ opacity: 1 }));
       }
-    } catch (e) { /* sem marca d'Ã¡gua */ }
+    } catch (e) { /* sem marca d'água */ }
   }
 
   doc.setFillColor(...LARANJA); doc.rect(0, 0, W / 2, 8, 'F');
@@ -1201,7 +1208,7 @@ async function downloadCertificate() {
   doc.setFontSize(12);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...CINZA);
-  doc.text('DE CONCLUSÃƒO', W / 2, 80, { align: 'center' });
+  doc.text('DE CONCLUSÃO', W / 2, 80, { align: 'center' });
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(11);
@@ -1222,13 +1229,13 @@ async function downloadCertificate() {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.setTextColor(...CINZA);
-    doc.text(partes.join('  â€¢  '), W / 2, 113, { align: 'center' });
+    doc.text(partes.join('  •  '), W / 2, 113, { align: 'center' });
   }
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(11);
   doc.setTextColor(...GRAFITE);
-  doc.text('concluiu com Ãªxito o curso de', W / 2, 123, { align: 'center' });
+  doc.text('concluiu com êxito o curso de', W / 2, 123, { align: 'center' });
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(15);
@@ -1241,14 +1248,14 @@ async function downloadCertificate() {
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.setTextColor(...CINZA);
-  doc.text('Realizado atravÃ©s da nossa plataforma CDE ACADEMY,', W / 2, 144, { align: 'center' });
-  doc.text('na modalidade ONLINE, no perÃ­odo de ' + dateStr + ',', W / 2, 150, { align: 'center' });
-  doc.text('com carga horÃ¡ria total de ' + hours + ' horas.', W / 2, 156, { align: 'center' });
+  doc.text('Realizado através da nossa plataforma CDE ACADEMY,', W / 2, 144, { align: 'center' });
+  doc.text('na modalidade ONLINE, no período de ' + dateStr + ',', W / 2, 150, { align: 'center' });
+  doc.text('com carga horária total de ' + hours + ' horas.', W / 2, 156, { align: 'center' });
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
   doc.setTextColor(...VERMELHO);
-  doc.text('Certificado nÂº: ' + completion.certificate_code, W / 2, 168, { align: 'center' });
+  doc.text('Certificado nº: ' + completion.certificate_code, W / 2, 168, { align: 'center' });
 
   const sigY = 180;
   doc.setDrawColor(...GRAFITE);
@@ -1260,7 +1267,7 @@ async function downloadCertificate() {
   doc.setTextColor(...CINZA);
   doc.text('K K KRAUSS ARAUJO INDUSTRIA E COMERCIO DE VIDROS LTDA - ME', W / 2, sigY + 6, { align: 'center' });
   doc.setTextColor(...CINZA_CLARO);
-  doc.text('CDE IndÃºstria de Vidros  â€¢  CNPJ 84.544.246/0001-14', W / 2, sigY + 10, { align: 'center' });
+  doc.text('CDE Indústria de Vidros  •  CNPJ 84.544.246/0001-14', W / 2, sigY + 10, { align: 'center' });
 
   try {
     const qrContent = [
@@ -1289,7 +1296,7 @@ async function downloadCertificate() {
   drawBlindexVector(doc, blindexX, blindexY, blindexSize);
 
   // ==========================================================
-  // PÃGINA 2 â€” CONTEÃšDO PROGRAMÃTICO
+  // PÁGINA 2 — CONTEÚDO PROGRAMÁTICO
   // ==========================================================
   const { data: modsRaw } = await db
     .from('academy_modules')
@@ -1351,7 +1358,7 @@ async function downloadCertificate() {
 
     doc.setFontSize(20);
     doc.setTextColor(...VERMELHO);
-    doc.text('CONTEÃšDO PROGRAMÃTICO', W / 2, 54, { align: 'center' });
+    doc.text('CONTEÚDO PROGRAMÁTICO', W / 2, 54, { align: 'center' });
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(11);
@@ -1366,8 +1373,8 @@ async function downloadCertificate() {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(...CINZA_CLARO);
-    doc.text('Certificado nÂº: ' + completion.certificate_code, 22, H - 18, { align: 'left' });
-    doc.text('PÃ¡gina ' + pageNum, W - 22, H - 18, { align: 'right' });
+    doc.text('Certificado nº: ' + completion.certificate_code, 22, H - 18, { align: 'left' });
+    doc.text('Página ' + pageNum, W - 22, H - 18, { align: 'right' });
     doc.text('Emitido em ' + new Date().toLocaleDateString('pt-BR'), W / 2, H - 18, { align: 'center' });
 
     return 78;
@@ -1398,7 +1405,7 @@ async function downloadCertificate() {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9);
       doc.setTextColor(...VERMELHO);
-      doc.text('MÃ“DULO ' + (mi + 1), 28, y + 1);
+      doc.text('MÓDULO ' + (mi + 1), 28, y + 1);
 
       doc.setFontSize(10);
       doc.setTextColor(...GRAFITE);
@@ -1413,7 +1420,7 @@ async function downloadCertificate() {
 
         const lesson = mod.lessons[li];
         const lessonNum = (mi + 1) + '.' + (li + 1);
-        const typeLabel = { pdf: 'PDF', video: 'VÃ­deo', slides: 'Slides', image: 'Imagem', text: 'Texto' }[lesson.content_type] || '';
+        const typeLabel = { pdf: 'PDF', video: 'Vídeo', slides: 'Slides', image: 'Imagem', text: 'Texto' }[lesson.content_type] || '';
 
         doc.setFillColor(...CINZA_CLARO);
         doc.circle(35, y - 1, 0.8, 'F');
@@ -1432,7 +1439,7 @@ async function downloadCertificate() {
         doc.setFontSize(7);
         if (lesson.has_quiz) {
           doc.setTextColor(...LARANJA);
-          doc.text(typeLabel + ' â€¢ QuestionÃ¡rio', W - 28, y, { align: 'right' });
+          doc.text(typeLabel + ' • Questionário', W - 28, y, { align: 'right' });
         } else {
           doc.setTextColor(...CINZA_CLARO);
           doc.text(typeLabel, W - 28, y, { align: 'right' });
@@ -1449,16 +1456,16 @@ async function downloadCertificate() {
   const safeName = nome.replace(/[^a-zA-Z0-9]/g, '_');
   const fn = 'Certificado_' + safeTitle + '_' + safeName + '.pdf';
   doc.save(fn);
-  showMessage('Certificado gerado! ðŸ“¥', 'success');
+  showMessage('Certificado gerado! 📥', 'success');
 }
 
-// ==================== GESTÃƒO DE PONTOS ====================
+// ==================== GESTÃO DE PONTOS ====================
 let pointsCache = [];
 let editingAdjustUserId = null;
 
 async function renderPointsManagement() {
   const main = document.getElementById('main-content');
-  main.innerHTML = '<div class="state-box">Carregando pontosâ€¦</div>';
+  main.innerHTML = '<div class="state-box">Carregando pontos…</div>';
 
   try {
     const [profilesRes, certsRes, acadRes, adjRes] = await Promise.all([
@@ -1473,7 +1480,7 @@ async function renderPointsManagement() {
     const acad     = acadRes.data    || [];
     const adjs     = adjRes.data     || [];
 
-    // Agrega pontos por usuÃ¡rio
+    // Agrega pontos por usuário
     const byUser = {};
     profiles.forEach(p => {
       byUser[p.id] = {
@@ -1481,7 +1488,7 @@ async function renderPointsManagement() {
         nome: p.full_name || p.email,
         email: p.email,
         cargo: p.position || '',
-        setor: p.sector || 'â€”',
+        setor: p.sector || '—',
         role: p.role,
         pdi: 0, academy: 0, ajustes: 0, total: 0,
         cursosConcluidos: 0,
@@ -1521,20 +1528,20 @@ async function renderPointsManagement() {
 
     main.innerHTML = `
       <div class="section-header">
-        <h2>â­ Gerenciar Pontos</h2>
-        <span class="section-sub">${pointsCache.length} colaboradores Â· ${totalEmpresa.toLocaleString('pt-BR')} pts distribuÃ­dos</span>
+        <h2>⭐ Gerenciar Pontos</h2>
+        <span class="section-sub">${pointsCache.length} colaboradores · ${totalEmpresa.toLocaleString('pt-BR')} pts distribuídos</span>
       </div>
 
       <div class="stats-grid">
-        <div class="stat-card"><div class="stat-icon">â­</div><div class="stat-value">${totalEmpresa.toLocaleString('pt-BR')}</div><div class="stat-label">Pontos totais</div></div>
-        <div class="stat-card"><div class="stat-icon">ðŸ“Š</div><div class="stat-value" style="color:var(--roxo-medio);">${totalPDI}</div><div class="stat-label">Origem PDI</div></div>
-        <div class="stat-card"><div class="stat-icon">ðŸŽ“</div><div class="stat-value" style="color:var(--verde);">${totalAcademy}</div><div class="stat-label">Origem Academy</div></div>
-        <div class="stat-card"><div class="stat-icon">âœï¸</div><div class="stat-value" style="color:var(--cde-laranja-escuro);">${totalAjustes}</div><div class="stat-label">Ajustes manuais</div></div>
-        <div class="stat-card"><div class="stat-icon">ðŸ“ˆ</div><div class="stat-value">${media}</div><div class="stat-label">MÃ©dia por pessoa</div></div>
+        <div class="stat-card"><div class="stat-icon">⭐</div><div class="stat-value">${totalEmpresa.toLocaleString('pt-BR')}</div><div class="stat-label">Pontos totais</div></div>
+        <div class="stat-card"><div class="stat-icon">📊</div><div class="stat-value" style="color:var(--roxo-medio);">${totalPDI}</div><div class="stat-label">Origem PDI</div></div>
+        <div class="stat-card"><div class="stat-icon">🎓</div><div class="stat-value" style="color:var(--verde);">${totalAcademy}</div><div class="stat-label">Origem Academy</div></div>
+        <div class="stat-card"><div class="stat-icon">✏️</div><div class="stat-value" style="color:var(--cde-laranja-escuro);">${totalAjustes}</div><div class="stat-label">Ajustes manuais</div></div>
+        <div class="stat-card"><div class="stat-icon">📈</div><div class="stat-value">${media}</div><div class="stat-label">Média por pessoa</div></div>
       </div>
 
       <div style="background: var(--branco); border-radius:14px; padding:22px; border:1px solid var(--cinza-borda); margin-bottom: 20px; overflow-x: auto;">
-        <h3 style="font-size: 1rem; margin-bottom: 14px;">ðŸ† Ranking completo</h3>
+        <h3 style="font-size: 1rem; margin-bottom: 14px;">🏆 Ranking completo</h3>
         <table class="analytics-table">
           <thead><tr>
             <th style="width:40px;">#</th>
@@ -1544,7 +1551,7 @@ async function renderPointsManagement() {
             <th style="text-align:center;">Academy</th>
             <th style="text-align:center;">Ajustes</th>
             <th style="text-align:center;">Total</th>
-            <th style="text-align:right;">AÃ§Ãµes</th>
+            <th style="text-align:right;">Ações</th>
           </tr></thead>
           <tbody>
             ${ranking.map((u, i) => `
@@ -1560,7 +1567,7 @@ async function renderPointsManagement() {
                 <td style="text-align:center; color:${u.ajustes !== 0 ? 'var(--cde-laranja-escuro)' : 'var(--texto-mute)'};">${u.ajustes > 0 ? '+' : ''}${u.ajustes}</td>
                 <td style="text-align:center; font-weight:800; font-size:1rem;">${u.total}</td>
                 <td style="text-align:right;">
-                  <button class="btn-secondary btn-small" onclick="openPointsAdjustModal('${u.id}')">â­ Ajustar</button>
+                  <button class="btn-secondary btn-small" onclick="openPointsAdjustModal('${u.id}')">⭐ Ajustar</button>
                 </td>
               </tr>
             `).join('')}
@@ -1569,16 +1576,16 @@ async function renderPointsManagement() {
       </div>
 
       <div style="background: var(--branco); border-radius:14px; padding:22px; border:1px solid var(--cinza-borda);">
-        <h3 style="font-size: 1rem; margin-bottom: 14px;">ðŸ“œ HistÃ³rico de ajustes manuais</h3>
+        <h3 style="font-size: 1rem; margin-bottom: 14px;">📜 Histórico de ajustes manuais</h3>
         ${adjs.length === 0 ? '<p style="color:var(--texto-soft); font-size:0.88rem;">Nenhum ajuste manual feito ainda.</p>' : adjs.slice(0, 30).map(a => {
           const u = byUser[a.user_id];
           return `
             <div style="padding: 12px 0; border-bottom: 1px solid var(--cinza-borda); display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
               <div style="flex:1; min-width:200px;">
-                <div style="font-weight:700; font-size:0.88rem;">${escapeHtml(u?.nome || 'UsuÃ¡rio removido')}</div>
+                <div style="font-weight:700; font-size:0.88rem;">${escapeHtml(u?.nome || 'Usuário removido')}</div>
                 <div style="font-size:0.78rem; color:var(--texto-soft); margin-top:2px;">${escapeHtml(a.reason)}</div>
                 <div style="font-size:0.7rem; color:var(--texto-mute); margin-top:4px;">
-                  ${new Date(a.created_at).toLocaleString('pt-BR')} Â· por ${escapeHtml(a.created_by_name || 'â€”')}
+                  ${new Date(a.created_at).toLocaleString('pt-BR')} · por ${escapeHtml(a.created_by_name || '—')}
                 </div>
               </div>
               <div style="font-weight:800; font-size:1rem; color:${a.points >= 0 ? 'var(--verde)' : 'var(--cde-vermelho)'}; align-self:center;">
@@ -1599,7 +1606,7 @@ function openPointsAdjustModal(userId) {
   editingAdjustUserId = userId;
   const u = pointsCache.find(x => x.id === userId);
   if (!u) return;
-  document.getElementById('pa-subtitle').textContent = `${u.nome} Â· Total atual: ${u.total} pts`;
+  document.getElementById('pa-subtitle').textContent = `${u.nome} · Total atual: ${u.total} pts`;
   document.getElementById('pa-points').value = 5;
   document.getElementById('pa-reason').value = '';
   document.getElementById('points-adjust-modal').classList.remove('hidden');
@@ -1631,7 +1638,7 @@ async function savePointsAdjustment() {
     showMessage(`Ajuste de ${points > 0 ? '+' : ''}${points} pts aplicado.`, 'success');
     closePointsAdjustModal();
 
-    // Se o ajuste foi no prÃ³prio usuÃ¡rio logado, atualiza a topbar
+    // Se o ajuste foi no próprio usuário logado, atualiza a topbar
     if (editingAdjustUserId === currentUser.id) await loadTopbarPoints();
 
     await renderPointsManagement();
@@ -1640,22 +1647,22 @@ async function savePointsAdjustment() {
   }
 }
 
-// ==================== PAINEL DE GESTÃƒO ====================
+// ==================== PAINEL DE GESTÃO ====================
 function renderManageCourses() {
   const courses = allCourses;
   return `
     <div class="section-header">
-      <h2>âš™ï¸ Gerenciar Cursos</h2>
+      <h2>⚙️ Gerenciar Cursos</h2>
       <span class="section-sub">${courses.length} curso${courses.length === 1 ? '' : 's'} no total</span>
       <div class="header-actions">
         <button class="btn-primary" onclick="openCourseForm()">+ Novo Curso</button>
       </div>
     </div>
-    ${courses.length === 0 ? renderEmpty('ðŸ“š', 'Nenhum curso criado ainda. Clique em "+ Novo Curso".') :
+    ${courses.length === 0 ? renderEmpty('📚', 'Nenhum curso criado ainda. Clique em "+ Novo Curso".') :
       `<div class="courses-grid">
         ${courses.map(c => {
           const coverStyle = c.cover_url ? `background-image: url('${escapeHtml(c.cover_url)}'); background-size: cover; background-position: center;` : '';
-          const coverContent = c.cover_url ? '' : 'ðŸ“˜';
+          const coverContent = c.cover_url ? '' : '📘';
           const pubBadge = c.is_published === false
             ? '<span class="course-badge" style="background: #FDE8EB; color: var(--cde-vermelho);">Rascunho</span>'
             : '<span class="course-badge concluido">Publicado</span>';
@@ -1664,15 +1671,15 @@ function renderManageCourses() {
               <div class="course-cover" style="${coverStyle}">${pubBadge}${coverContent}</div>
               <div class="course-body">
                 <h3>${escapeHtml(c.title)}</h3>
-                <p>${escapeHtml(c.description || 'Sem descriÃ§Ã£o.')}</p>
+                <p>${escapeHtml(c.description || 'Sem descrição.')}</p>
                 <div class="course-meta">
-                  <span class="tag">â± ${c.workload_hours || 1}h</span>
-                  ${c.sector ? `<span class="tag">ðŸ· ${escapeHtml(c.sector)}</span>` : ''}
+                  <span class="tag">⏱ ${c.workload_hours || 1}h</span>
+                  ${c.sector ? `<span class="tag">🏷 ${escapeHtml(c.sector)}</span>` : ''}
                 </div>
                 <div style="display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap;">
-                  <button class="btn-secondary btn-small" onclick="event.stopPropagation();openCourseForm('${c.id}')">âœï¸ Editar</button>
-                  <button class="btn-secondary btn-small" onclick="event.stopPropagation();openEnrollModal('${c.id}')">ðŸ‘¥ MatrÃ­culas</button>
-                  <button class="btn-danger btn-small" onclick="event.stopPropagation();deleteCourse('${c.id}')">ðŸ—‘</button>
+                  <button class="btn-secondary btn-small" onclick="event.stopPropagation();openCourseForm('${c.id}')">✏️ Editar</button>
+                  <button class="btn-secondary btn-small" onclick="event.stopPropagation();openEnrollModal('${c.id}')">👥 Matrículas</button>
+                  <button class="btn-danger btn-small" onclick="event.stopPropagation();deleteCourse('${c.id}')">🗑</button>
                 </div>
               </div>
             </div>`;
@@ -1686,7 +1693,7 @@ function openCourseForm(courseId = null) {
   editingCourseId = courseId;
   editingCourseCoverUrl = null;
   document.getElementById('cf-title-h').textContent = courseId ? 'Editar Curso' : 'Novo Curso';
-  document.getElementById('cf-subtitle').textContent = courseId ? 'Atualize as informaÃ§Ãµes.' : 'Preencha os dados.';
+  document.getElementById('cf-subtitle').textContent = courseId ? 'Atualize as informações.' : 'Preencha os dados.';
   const t = document.getElementById('cf-title'), d = document.getElementById('cf-desc'), h = document.getElementById('cf-hours'),
         s = document.getElementById('cf-sector'), p = document.getElementById('cf-published'), c = document.getElementById('cf-cover');
   t.value = ''; d.value = ''; h.value = 2; s.value = ''; p.checked = true; c.value = '';
@@ -1698,23 +1705,23 @@ function openCourseForm(courseId = null) {
       h.value = course.workload_hours || 2; s.value = course.sector || '';
       p.checked = course.is_published !== false;
       editingCourseCoverUrl = course.cover_url || null;
-      if (course.cover_url) document.getElementById('cf-cover-name').textContent = 'âœ“ Capa atual mantida';
+      if (course.cover_url) document.getElementById('cf-cover-name').textContent = '✓ Capa atual mantida';
     }
   }
   document.getElementById('course-form-modal').classList.remove('hidden');
 }
 function closeCourseForm() { document.getElementById('course-form-modal').classList.add('hidden'); editingCourseId = null; editingCourseCoverUrl = null; }
-function onCoverChange(e) { const f = e.target.files[0]; document.getElementById('cf-cover-name').textContent = f ? `âœ“ ${f.name}` : ''; }
+function onCoverChange(e) { const f = e.target.files[0]; document.getElementById('cf-cover-name').textContent = f ? `✓ ${f.name}` : ''; }
 async function saveCourse() {
   const title = document.getElementById('cf-title').value.trim();
-  if (!title) return showMessage('O tÃ­tulo Ã© obrigatÃ³rio.', 'error');
+  if (!title) return showMessage('O título é obrigatório.', 'error');
   const description = document.getElementById('cf-desc').value.trim();
   const hours = parseInt(document.getElementById('cf-hours').value, 10) || 2;
   const sector = document.getElementById('cf-sector').value || null;
   const isPublished = document.getElementById('cf-published').checked;
   const coverFile = document.getElementById('cf-cover').files[0];
   const btn = document.getElementById('cf-save-btn');
-  btn.disabled = true; btn.textContent = 'Salvandoâ€¦';
+  btn.disabled = true; btn.textContent = 'Salvando…';
   try {
     let coverUrl = editingCourseCoverUrl;
     if (coverFile) {
@@ -1744,11 +1751,11 @@ async function saveCourse() {
 async function deleteCourse(courseId) {
   const course = allCourses.find(c => c.id === courseId);
   if (!course) return;
-  if (!confirm(`Excluir o curso "${course.title}"?\n\nIsso removerÃ¡ mÃ³dulos, aulas e quizzes.`)) return;
+  if (!confirm(`Excluir o curso "${course.title}"?\n\nIsso removerá módulos, aulas e quizzes.`)) return;
   try {
     const { error } = await db.from('academy_courses').delete().eq('id', courseId);
     if (error) throw error;
-    showMessage('Curso excluÃ­do.', 'success');
+    showMessage('Curso excluído.', 'success');
     await loadCourses();
     renderView('manage');
   } catch (e) { showMessage('Erro: ' + e.message, 'error'); }
@@ -1757,10 +1764,10 @@ async function deleteCourse(courseId) {
 // COURSE EDITOR
 async function openCourseEditor(courseId) {
   const course = allCourses.find(c => c.id === courseId);
-  if (!course) return showMessage('Curso nÃ£o encontrado.', 'error');
+  if (!course) return showMessage('Curso não encontrado.', 'error');
   currentEditorCourseId = courseId;
   document.getElementById('ce-course-title').textContent = course.title;
-  document.getElementById('ce-course-sub').textContent = `${course.workload_hours || 1}h${course.sector ? ' â€¢ ' + course.sector : ''}${course.is_published === false ? ' â€¢ Rascunho' : ''}`;
+  document.getElementById('ce-course-sub').textContent = `${course.workload_hours || 1}h${course.sector ? ' • ' + course.sector : ''}${course.is_published === false ? ' • Rascunho' : ''}`;
   await loadEditorModules();
   document.getElementById('course-editor-view').classList.remove('hidden');
   window.scrollTo(0, 0);
@@ -1772,23 +1779,23 @@ function closeCourseEditor() {
 }
 async function loadEditorModules() {
   const container = document.getElementById('ce-modules-tree');
-  container.innerHTML = '<div class="state-box">Carregandoâ€¦</div>';
+  container.innerHTML = '<div class="state-box">Carregando…</div>';
   try {
     const { data: mods, error } = await db.from('academy_modules').select('*').eq('course_id', currentEditorCourseId).order('order_index');
     if (error) throw error;
     currentEditorModules = mods || [];
     if (currentEditorModules.length === 0) {
-      container.innerHTML = `<div class="state-box"><span class="emoji">ðŸ“¦</span>Nenhum mÃ³dulo criado.<br><button class="btn-primary" style="margin-top: 14px;" onclick="openModuleForm()">+  primeiro mÃ³dulo</button></div>`;
+      container.innerHTML = `<div class="state-box"><span class="emoji">📦</span>Nenhum módulo criado.<br><button class="btn-primary" style="margin-top: 14px;" onclick="openModuleForm()">+  primeiro módulo</button></div>`;
       return;
     }
     const html = await Promise.all(currentEditorModules.map(async (mod) => {
       const { data: lessons } = await db.from('academy_lessons').select('*').eq('module_id', mod.id).order('order_index');
       const lessonList = lessons || [];
       const lessonsHtml = lessonList.map(l => {
-        const icons = { pdf: 'ðŸ“„', video: 'ðŸŽ¬', slides: 'ðŸ“Š', image: 'ðŸ–¼ï¸', text: 'ðŸ“' };
-        const icon = icons[l.content_type] || 'ðŸ“„';
+        const icons = { pdf: '📄', video: '🎬', slides: '📊', image: '🖼️', text: '📝' };
+        const icon = icons[l.content_type] || '📄';
         const quizBadge = l.has_quiz ? ' <span style="background: var(--amarelo-bg); color: var(--amarelo); padding: 2px 8px; border-radius: 10px; font-size: 0.65rem; font-weight: 800;">QUIZ</span>' : '';
-        const typeLabel = { pdf: 'PDF', video: 'VÃ­deo', slides: 'Slides externos', image: 'Imagem', text: 'Texto' }[l.content_type] || l.content_type;
+        const typeLabel = { pdf: 'PDF', video: 'Vídeo', slides: 'Slides externos', image: 'Imagem', text: 'Texto' }[l.content_type] || l.content_type;
         return `
           <div class="tree-lesson">
             <div class="info">
@@ -1799,21 +1806,21 @@ async function loadEditorModules() {
               </div>
             </div>
             <div class="actions">
-              <button class="btn-secondary btn-small" onclick="previewLesson('${l.id}')">ðŸ‘ PrÃ©via</button>
-              <button class="btn-secondary btn-small" onclick="openLessonForm('${mod.id}','${l.id}')">âœï¸ Editar</button>
-              ${l.has_quiz ? `<button class="btn-secondary btn-small" onclick="openQuizEditor('${l.id}')">ðŸ“ Quiz</button>` : ''}
-              <button class="btn-danger btn-small" onclick="deleteLesson('${l.id}')">ðŸ—‘</button>
+              <button class="btn-secondary btn-small" onclick="previewLesson('${l.id}')">👁 Prévia</button>
+              <button class="btn-secondary btn-small" onclick="openLessonForm('${mod.id}','${l.id}')">✏️ Editar</button>
+              ${l.has_quiz ? `<button class="btn-secondary btn-small" onclick="openQuizEditor('${l.id}')">📝 Quiz</button>` : ''}
+              <button class="btn-danger btn-small" onclick="deleteLesson('${l.id}')">🗑</button>
             </div>
           </div>`;
       }).join('');
       return `
         <div class="tree-module">
           <div class="tree-module-header">
-            <h4>ðŸ“¦ ${escapeHtml(mod.title)} <span style="font-size: 0.75rem; color: var(--texto-soft); font-weight: 600;">(${lessonList.length} aula${lessonList.length === 1 ? '' : 's'})</span></h4>
+            <h4>📦 ${escapeHtml(mod.title)} <span style="font-size: 0.75rem; color: var(--texto-soft); font-weight: 600;">(${lessonList.length} aula${lessonList.length === 1 ? '' : 's'})</span></h4>
             <div class="actions">
               <button class="btn-primary btn-small" onclick="openLessonForm('${mod.id}')">+ Aula</button>
-              <button class="btn-secondary btn-small" onclick="openModuleForm('${mod.id}')">âœï¸</button>
-              <button class="btn-danger btn-small" onclick="deleteModule('${mod.id}')">ðŸ—‘</button>
+              <button class="btn-secondary btn-small" onclick="openModuleForm('${mod.id}')">✏️</button>
+              <button class="btn-danger btn-small" onclick="deleteModule('${mod.id}')">🗑</button>
             </div>
           </div>
           <div class="tree-lessons">
@@ -1831,12 +1838,12 @@ async function previewLesson(lessonId) {
   const { data: l } = await db.from('academy_lessons').select('*').eq('id', lessonId).single();
   if (!l) return;
   document.getElementById('player-lesson-title').textContent = l.title;
-  document.getElementById('player-course-title').textContent = 'ðŸ‘ Modo prÃ©via';
+  document.getElementById('player-course-title').textContent = '👁 Modo prévia';
   document.getElementById('player-lesson-badge').textContent = 'PREVIEW';
   document.getElementById('player-progress-fill').style.width = '100%';
   document.getElementById('btn-prev-lesson').disabled = true;
   document.getElementById('btn-next-lesson').disabled = true;
-  document.getElementById('btn-complete-lesson').textContent = 'âœ“ Modo prÃ©via';
+  document.getElementById('btn-complete-lesson').textContent = '✓ Modo prévia';
   document.getElementById('btn-complete-lesson').classList.add('done');
   document.getElementById('btn-complete-lesson').disabled = true;
 
@@ -1856,7 +1863,7 @@ async function previewLesson(lessonId) {
   } else if (type === 'pdf' && l.content_url) html = `<div class="content-viewer"><iframe class="pdf-frame" src="${escapeHtml(l.content_url)}"></iframe></div>`;
   else if (type === 'slides' && l.content_url) html = `<div class="content-viewer"><iframe class="slides-frame" src="${escapeHtml(l.content_url)}" allowfullscreen></iframe></div>`;
   else if (type === 'image' && l.content_url) html = `<div class="content-viewer"><img src="${escapeHtml(l.content_url)}"></div>`;
-  else html = `<div class="content-viewer"><div class="text-content">${l.content_text || '<p>Sem conteÃºdo.</p>'}</div></div>`;
+  else html = `<div class="content-viewer"><div class="text-content">${l.content_text || '<p>Sem conteúdo.</p>'}</div></div>`;
 
   if (l.has_quiz) {
     const { data: qs } = await db.from('academy_quizzes').select('*').eq('lesson_id', l.id).order('order_index');
@@ -1864,9 +1871,9 @@ async function previewLesson(lessonId) {
       let qhtml = '';
       for (const q of qs) {
         const { data: opts } = await db.from('academy_quiz_options').select('*').eq('quiz_id', q.id).order('order_index');
-        qhtml += `<div class="player-quiz-question"><div class="q-text">${escapeHtml(q.question)}</div>${(opts || []).map(o => `<div class="player-quiz-option ${o.is_correct ? 'correct' : ''}"><span>${o.is_correct ? 'âœ…' : 'â¬œ'} ${escapeHtml(o.option_text)}</span></div>`).join('')}</div>`;
+        qhtml += `<div class="player-quiz-question"><div class="q-text">${escapeHtml(q.question)}</div>${(opts || []).map(o => `<div class="player-quiz-option ${o.is_correct ? 'correct' : ''}"><span>${o.is_correct ? '✅' : '⬜'} ${escapeHtml(o.option_text)}</span></div>`).join('')}</div>`;
       }
-      html += `<div class="quiz-block"><h3>ðŸ“ QuestionÃ¡rio (visÃ£o do professor)</h3>${qhtml}</div>`;
+      html += `<div class="quiz-block"><h3>📝 Questionário (visão do professor)</h3>${qhtml}</div>`;
     }
   }
   body.innerHTML = html;
@@ -1874,10 +1881,10 @@ async function previewLesson(lessonId) {
   window.scrollTo(0, 0);
 }
 
-// CRUD MÃ“DULOS
+// CRUD MÓDULOS
 function openModuleForm(moduleId = null) {
   editingModuleId = moduleId;
-  document.getElementById('mf-title-h').textContent = moduleId ? 'Editar MÃ³dulo' : 'Novo MÃ³dulo';
+  document.getElementById('mf-title-h').textContent = moduleId ? 'Editar Módulo' : 'Novo Módulo';
   document.getElementById('mf-title').value = '';
   if (moduleId) {
     const mod = currentEditorModules.find(m => m.id === moduleId);
@@ -1888,29 +1895,29 @@ function openModuleForm(moduleId = null) {
 function closeModuleForm() { document.getElementById('module-form-modal').classList.add('hidden'); editingModuleId = null; }
 async function saveModule() {
   const title = document.getElementById('mf-title').value.trim();
-  if (!title) return showMessage('TÃ­tulo obrigatÃ³rio.', 'error');
+  if (!title) return showMessage('Título obrigatório.', 'error');
   try {
     if (editingModuleId) {
       const { error } = await db.from('academy_modules').update({ title }).eq('id', editingModuleId);
       if (error) throw error;
-      showMessage('MÃ³dulo atualizado!', 'success');
+      showMessage('Módulo atualizado!', 'success');
     } else {
       const { data: existing } = await db.from('academy_modules').select('order_index').eq('course_id', currentEditorCourseId).order('order_index', { ascending: false }).limit(1);
       const nextIdx = (existing?.[0]?.order_index ?? -1) + 1;
       const { error } = await db.from('academy_modules').insert({ course_id: currentEditorCourseId, title, order_index: nextIdx });
       if (error) throw error;
-      showMessage('MÃ³dulo criado!', 'success');
+      showMessage('Módulo criado!', 'success');
     }
     closeModuleForm();
     await loadEditorModules();
   } catch (e) { showMessage('Erro: ' + e.message, 'error'); }
 }
 async function deleteModule(moduleId) {
-  if (!confirm('Excluir este mÃ³dulo e todas as suas aulas?')) return;
+  if (!confirm('Excluir este módulo e todas as suas aulas?')) return;
   try {
     const { error } = await db.from('academy_modules').delete().eq('id', moduleId);
     if (error) throw error;
-    showMessage('MÃ³dulo excluÃ­do.', 'success');
+    showMessage('Módulo excluído.', 'success');
     await loadEditorModules();
   } catch (e) { showMessage('Erro: ' + e.message, 'error'); }
 }
@@ -1940,8 +1947,8 @@ function openLessonForm(moduleId, lessonId = null) {
       if (l.content_type === 'text') document.getElementById('lf-text').value = l.content_text || '';
       if (l.content_type === 'video') document.getElementById('lf-video-url').value = l.content_url || '';
       if (l.content_type === 'slides') document.getElementById('lf-slides-url').value = l.content_url || '';
-      if (l.content_type === 'pdf' && l.content_url) document.getElementById('lf-pdf-name').textContent = 'âœ“ PDF atual mantido';
-      if (l.content_type === 'image' && l.content_url) document.getElementById('lf-image-name').textContent = 'âœ“ Imagem atual mantida';
+      if (l.content_type === 'pdf' && l.content_url) document.getElementById('lf-pdf-name').textContent = '✓ PDF atual mantido';
+      if (l.content_type === 'image' && l.content_url) document.getElementById('lf-image-name').textContent = '✓ Imagem atual mantida';
       document.getElementById('lf-has-quiz').checked = !!l.has_quiz;
       toggleLessonFields();
     });
@@ -1957,14 +1964,14 @@ function toggleLessonFields() {
   document.getElementById('lf-field-image').classList.toggle('hidden', t !== 'image');
   document.getElementById('lf-field-text').classList.toggle('hidden', t !== 'text');
 }
-function onPdfChange(e) { const f = e.target.files[0]; document.getElementById('lf-pdf-name').textContent = f ? `âœ“ ${f.name}` : ''; }
-function onImageChange(e) { const f = e.target.files[0]; document.getElementById('lf-image-name').textContent = f ? `âœ“ ${f.name}` : ''; }
+function onPdfChange(e) { const f = e.target.files[0]; document.getElementById('lf-pdf-name').textContent = f ? `✓ ${f.name}` : ''; }
+function onImageChange(e) { const f = e.target.files[0]; document.getElementById('lf-image-name').textContent = f ? `✓ ${f.name}` : ''; }
 
 async function saveLesson() {
   const title = document.getElementById('lf-title').value.trim();
   const type = document.getElementById('lf-type').value;
   const hasQuiz = document.getElementById('lf-has-quiz').checked;
-  if (!title) return showMessage('TÃ­tulo obrigatÃ³rio.', 'error');
+  if (!title) return showMessage('Título obrigatório.', 'error');
 
   let contentUrl = null, contentText = null;
   try {
@@ -1992,14 +1999,14 @@ async function saveLesson() {
       } else return showMessage('Selecione uma imagem.', 'error');
     } else if (type === 'video') {
       contentUrl = document.getElementById('lf-video-url').value.trim();
-      if (!contentUrl) return showMessage('Informe a URL do vÃ­deo.', 'error');
-      if (!getVideoEmbedUrl(contentUrl)) return showMessage('URL nÃ£o reconhecida. Aceito YouTube, Vimeo e Google Drive.', 'error');
+      if (!contentUrl) return showMessage('Informe a URL do vídeo.', 'error');
+      if (!getVideoEmbedUrl(contentUrl)) return showMessage('URL não reconhecida. Aceito YouTube, Vimeo e Google Drive.', 'error');
     } else if (type === 'slides') {
       contentUrl = document.getElementById('lf-slides-url').value.trim();
-      if (!contentUrl) return showMessage('Informe a URL de incorporaÃ§Ã£o.', 'error');
+      if (!contentUrl) return showMessage('Informe a URL de incorporação.', 'error');
     } else if (type === 'text') {
       contentText = document.getElementById('lf-text').value;
-      if (!contentText.trim()) return showMessage('Digite o conteÃºdo.', 'error');
+      if (!contentText.trim()) return showMessage('Digite o conteúdo.', 'error');
     }
 
     const payload = { title, content_type: type, content_url: contentUrl, content_text: contentText, has_quiz: hasQuiz };
@@ -2031,7 +2038,7 @@ async function deleteLesson(lessonId) {
   try {
     const { error } = await db.from('academy_lessons').delete().eq('id', lessonId);
     if (error) throw error;
-    showMessage('Aula excluÃ­da.', 'success');
+    showMessage('Aula excluída.', 'success');
     await loadEditorModules();
   } catch (e) { showMessage('Erro: ' + e.message, 'error'); }
 }
@@ -2072,18 +2079,18 @@ function renderQuizEditor() {
     <div class="quiz-question-card">
       <div class="q-header">
         <strong style="font-size: 0.9rem;">Pergunta ${qi + 1}</strong>
-        ${quizQuestions.length > 1 ? `<button class="btn-danger btn-small" onclick="removeQuizQuestion(${qi})">ðŸ—‘ Remover</button>` : ''}
+        ${quizQuestions.length > 1 ? `<button class="btn-danger btn-small" onclick="removeQuizQuestion(${qi})">🗑 Remover</button>` : ''}
       </div>
       <input type="text" placeholder="Digite a pergunta..." value="${escapeHtml(q.question)}" oninput="quizQuestions[${qi}].question = this.value" style="width: 100%; padding: 10px; border: 1.5px solid var(--cinza-borda); border-radius: 8px; margin-bottom: 12px; font-size: 0.9rem;">
-      <div style="font-size: 0.75rem; font-weight: 700; color: var(--texto-soft); text-transform: uppercase; margin-bottom: 8px;">OpÃ§Ãµes (marque a correta)</div>
+      <div style="font-size: 0.75rem; font-weight: 700; color: var(--texto-soft); text-transform: uppercase; margin-bottom: 8px;">Opções (marque a correta)</div>
       ${q.options.map((o, oi) => `
         <div class="quiz-option-row">
           <input type="radio" name="correct-${qi}" ${o.is_correct ? 'checked' : ''} onchange="setCorrect(${qi}, ${oi})">
-          <input type="text" placeholder="OpÃ§Ã£o ${oi + 1}" value="${escapeHtml(o.text)}" oninput="quizQuestions[${qi}].options[${oi}].text = this.value">
-          ${q.options.length > 2 ? `<button class="remove-opt" onclick="removeOption(${qi},${oi})">âœ•</button>` : ''}
+          <input type="text" placeholder="Opção ${oi + 1}" value="${escapeHtml(o.text)}" oninput="quizQuestions[${qi}].options[${oi}].text = this.value">
+          ${q.options.length > 2 ? `<button class="remove-opt" onclick="removeOption(${qi},${oi})">✕</button>` : ''}
         </div>
       `).join('')}
-      <button class="btn-secondary btn-small" style="margin-top: 6px;" onclick="addOption(${qi})">+ OpÃ§Ã£o</button>
+      <button class="btn-secondary btn-small" style="margin-top: 6px;" onclick="addOption(${qi})">+ Opção</button>
     </div>
   `).join('');
 }
@@ -2102,8 +2109,8 @@ async function saveQuiz() {
   if (!editingQuizLessonId) return;
   for (let i = 0; i < quizQuestions.length; i++) {
     const q = quizQuestions[i];
-    if (!q.question.trim()) return showMessage(`Pergunta ${i + 1} estÃ¡ vazia.`, 'error');
-    if (q.options.some(o => !o.text.trim())) return showMessage(`Todas as opÃ§Ãµes da pergunta ${i + 1} precisam de texto.`, 'error');
+    if (!q.question.trim()) return showMessage(`Pergunta ${i + 1} está vazia.`, 'error');
+    if (q.options.some(o => !o.text.trim())) return showMessage(`Todas as opções da pergunta ${i + 1} precisam de texto.`, 'error');
     if (!q.options.some(o => o.is_correct)) return showMessage(`Marque a correta da pergunta ${i + 1}.`, 'error');
   }
   try {
@@ -2124,7 +2131,7 @@ async function saveQuiz() {
   } catch (e) { showMessage('Erro: ' + e.message, 'error'); }
 }
 
-// MATRÃCULAS
+// MATRÍCULAS
 let enrollTargetCourseId = null;
 async function openEnrollModal(courseId) {
   enrollTargetCourseId = courseId;
@@ -2138,7 +2145,7 @@ function openEnrollModalFromEditor() { openEnrollModal(currentEditorCourseId); }
 function closeEnrollModal() { document.getElementById('enroll-modal').classList.add('hidden'); enrollTargetCourseId = null; }
 async function loadEnrollUserSelect() {
   const sel = document.getElementById('enroll-user-select');
-  sel.innerHTML = '<option>Carregandoâ€¦</option>';
+  sel.innerHTML = '<option>Carregando…</option>';
   try {
     const { data, error } = await db.from('profiles')
       .select('id, full_name, email, sector, role')
@@ -2160,9 +2167,9 @@ async function loadEnrollUserSelect() {
       return;
     }
 
-    sel.innerHTML = '<option value="">â€” Selecione â€”</option>' +
+    sel.innerHTML = '<option value="">— Selecione —</option>' +
       filtered.map(p =>
-        `<option value="${p.id}">${escapeHtml(p.full_name || p.email)}${p.sector ? ' â€” ' + escapeHtml(p.sector) : ''}</option>`
+        `<option value="${p.id}">${escapeHtml(p.full_name || p.email)}${p.sector ? ' — ' + escapeHtml(p.sector) : ''}</option>`
       ).join('');
   } catch (e) {
     console.error('Erro loadEnrollUserSelect:', e);
@@ -2171,7 +2178,7 @@ async function loadEnrollUserSelect() {
 }
 async function loadEnrollList() {
   const container = document.getElementById('enroll-list');
-  container.innerHTML = 'Carregandoâ€¦';
+  container.innerHTML = 'Carregando…';
 
   try {
     const { data: enrolls, error } = await db
@@ -2199,15 +2206,15 @@ async function loadEnrollList() {
     container.innerHTML = list.map(e => {
       const profile = profileMap[e.user_id];
       const statusTag = e.status === 'completed'
-        ? 'âœ… ConcluÃ­do'
-        : 'â³ Em andamento';
+        ? '✅ Concluído'
+        : '⏳ Em andamento';
       return `
         <div style="padding: 12px; border-bottom: 1px solid var(--cinza-borda); display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
           <div style="min-width: 0; flex: 1;">
             <div style="font-weight: 700; font-size: 0.9rem;">${escapeHtml(profile?.full_name || profile?.email || 'Aluno')}</div>
             <div style="font-size: 0.75rem; color: var(--texto-soft);">
-              ${profile?.sector ? escapeHtml(profile.sector) + ' â€¢ ' : ''}
-              Desde ${new Date(e.assigned_at).toLocaleDateString('pt-BR')} â€¢ ${statusTag}
+              ${profile?.sector ? escapeHtml(profile.sector) + ' • ' : ''}
+              Desde ${new Date(e.assigned_at).toLocaleDateString('pt-BR')} • ${statusTag}
             </div>
           </div>
           <button class="btn-danger btn-small" onclick="unenrollUser('${e.id}')">Remover</button>
@@ -2230,11 +2237,11 @@ async function enrollUser() {
   } catch (e) { showMessage('Erro: ' + e.message, 'error'); }
 }
 async function unenrollUser(enrollId) {
-  if (!confirm('Remover a matrÃ­cula?')) return;
+  if (!confirm('Remover a matrícula?')) return;
   try {
     const { error } = await db.from('academy_enrollments').delete().eq('id', enrollId);
     if (error) throw error;
-    showMessage('MatrÃ­cula removida.', 'success');
+    showMessage('Matrícula removida.', 'success');
     await loadEnrollList();
   } catch (e) { showMessage('Erro: ' + e.message, 'error'); }
 }
@@ -2242,7 +2249,7 @@ async function unenrollUser(enrollId) {
 // ==================== ANALYTICS ====================
 async function renderAnalyticsView() {
   const main = document.getElementById('main-content');
-  main.innerHTML = '<div class="state-box">Carregando analyticsâ€¦</div>';
+  main.innerHTML = '<div class="state-box">Carregando analytics…</div>';
 
   try {
     const [coursesRes, enrollsRes, completionsRes, viewsRes, profilesRes, lessonsRes] = await Promise.all([
@@ -2289,7 +2296,7 @@ async function renderAnalyticsView() {
     views.forEach(v => {
       if (!alunoStats[v.user_id]) {
         alunoStats[v.user_id] = {
-          name: profileMap[v.user_id]?.full_name || 'â€”',
+          name: profileMap[v.user_id]?.full_name || '—',
           lessons: new Set(),
           time: 0
         };
@@ -2304,8 +2311,8 @@ async function renderAnalyticsView() {
       const key = v.lesson_id;
       if (!aulaStats[key]) {
         aulaStats[key] = {
-          title: lessonMap[key]?.title || 'â€”',
-          course: courseMap[v.course_id]?.title || 'â€”',
+          title: lessonMap[key]?.title || '—',
+          course: courseMap[v.course_id]?.title || '—',
           views: 0,
           time: 0
         };
@@ -2319,36 +2326,36 @@ async function renderAnalyticsView() {
       if (t >= 80) return `<span class="badge-pill alta">${t}%</span>`;
       if (t >= 50) return `<span class="badge-pill media">${t}%</span>`;
       if (t > 0) return `<span class="badge-pill baixa">${t}%</span>`;
-      return `<span class="badge-pill none">â€”</span>`;
+      return `<span class="badge-pill none">—</span>`;
     };
 
     main.innerHTML = `
       <div class="section-header">
-        <h2>ðŸ“ˆ Analytics</h2>
-        <span class="section-sub">VisÃ£o geral do engajamento na Academy</span>
+        <h2>📈 Analytics</h2>
+        <span class="section-sub">Visão geral do engajamento na Academy</span>
       </div>
 
       <div class="stats-grid">
         <div class="stat-card">
-          <div class="stat-icon">ðŸ‘¥</div>
+          <div class="stat-icon">👥</div>
           <div class="stat-value">${totalAlunos}</div>
           <div class="stat-label">Alunos ativos</div>
-          <div class="stat-hint">${totalMatriculas} matrÃ­culas no total</div>
+          <div class="stat-hint">${totalMatriculas} matrículas no total</div>
         </div>
         <div class="stat-card">
-          <div class="stat-icon">ðŸŽ“</div>
+          <div class="stat-icon">🎓</div>
           <div class="stat-value" style="color: var(--verde);">${totalConclusoes}</div>
-          <div class="stat-label">ConclusÃµes</div>
+          <div class="stat-label">Conclusões</div>
           <div class="stat-hint">Certificados emitidos</div>
         </div>
         <div class="stat-card">
-          <div class="stat-icon">ðŸ“Š</div>
+          <div class="stat-icon">📊</div>
           <div class="stat-value" style="color: var(--cde-laranja-escuro);">${taxaGlobal}%</div>
-          <div class="stat-label">Taxa de conclusÃ£o</div>
-          <div class="stat-hint">ConclusÃµes / matrÃ­culas</div>
+          <div class="stat-label">Taxa de conclusão</div>
+          <div class="stat-hint">Conclusões / matrículas</div>
         </div>
         <div class="stat-card">
-          <div class="stat-icon">â±</div>
+          <div class="stat-icon">⏱</div>
           <div class="stat-value" style="color: var(--roxo-medio);">${Math.round(totalTempoSegundos / 60)}min</div>
           <div class="stat-label">Tempo total assistido</div>
           <div class="stat-hint">Somando todas as aulas</div>
@@ -2356,13 +2363,13 @@ async function renderAnalyticsView() {
       </div>
 
       <div style="background: var(--branco); border-radius:14px; padding:22px; border:1px solid var(--cinza-borda); margin-bottom: 20px; overflow-x: auto;">
-        <h3 style="font-size: 1rem; margin-bottom: 14px;">ðŸ“š Por curso</h3>
+        <h3 style="font-size: 1rem; margin-bottom: 14px;">📚 Por curso</h3>
         ${cursoStats.length === 0 ? '<p style="color: var(--texto-soft);">Sem cursos.</p>' : `
           <table class="analytics-table">
             <thead><tr>
               <th>Curso</th>
               <th style="text-align:center;">Alunos</th>
-              <th style="text-align:center;">ConclusÃµes</th>
+              <th style="text-align:center;">Conclusões</th>
               <th style="text-align:center;">Taxa</th>
               <th style="text-align:right;">Tempo total</th>
             </tr></thead>
@@ -2383,11 +2390,11 @@ async function renderAnalyticsView() {
 
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; margin-bottom: 20px;">
         <div style="background: var(--branco); border-radius:14px; padding:22px; border:1px solid var(--cinza-borda);">
-          <h3 style="font-size: 1rem; margin-bottom: 14px;">ðŸ† Alunos mais engajados</h3>
+          <h3 style="font-size: 1rem; margin-bottom: 14px;">🏆 Alunos mais engajados</h3>
           ${topAlunos.length === 0 ? '<p style="color: var(--texto-soft); font-size: 0.88rem;">Sem dados ainda.</p>' : topAlunos.map((a, i) => `
             <div style="padding: 10px 0; border-bottom: 1px solid var(--cinza-borda); display: flex; justify-content: space-between; align-items: center; gap: 10px;">
               <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
-                <span style="font-weight: 800; color: ${i === 0 ? 'var(--amarelo)' : i === 1 ? 'var(--texto-soft)' : i === 2 ? 'var(--cde-laranja-escuro)' : 'var(--texto-mute)'};">${i + 1}Âº</span>
+                <span style="font-weight: 800; color: ${i === 0 ? 'var(--amarelo)' : i === 1 ? 'var(--texto-soft)' : i === 2 ? 'var(--cde-laranja-escuro)' : 'var(--texto-mute)'};">${i + 1}º</span>
                 <span style="font-weight: 600; font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(a.name)}</span>
               </div>
               <div style="text-align: right; flex-shrink: 0;">
@@ -2399,7 +2406,7 @@ async function renderAnalyticsView() {
         </div>
 
         <div style="background: var(--branco); border-radius:14px; padding:22px; border:1px solid var(--cinza-borda);">
-          <h3 style="font-size: 1rem; margin-bottom: 14px;">ðŸ”¥ Aulas mais acessadas</h3>
+          <h3 style="font-size: 1rem; margin-bottom: 14px;">🔥 Aulas mais acessadas</h3>
           ${topAulas.length === 0 ? '<p style="color: var(--texto-soft); font-size: 0.88rem;">Sem dados ainda.</p>' : topAulas.map((a, i) => `
             <div style="padding: 10px 0; border-bottom: 1px solid var(--cinza-borda); display: flex; justify-content: space-between; align-items: center; gap: 10px;">
               <div style="min-width: 0; flex: 1;">
@@ -2427,7 +2434,7 @@ async function renderAnalyticsView() {
 
 async function renderDashboard() {
   const main = document.getElementById('main-content');
-  main.innerHTML = '<div class="state-box">Carregando dashboard executivoâ€¦</div>';
+  main.innerHTML = '<div class="state-box">Carregando dashboard executivo…</div>';
 
   try {
     const [coursesRes, enrollsRes, completionsRes, viewsRes, profilesRes, goalsRes, certsRes] = await Promise.all([
@@ -2535,9 +2542,9 @@ async function renderDashboard() {
     };
 
     const setoresDef = [
-      { key: 'COMERCIAL',      label: 'Comercial',      icon: 'ðŸ’¼', cls: 'comercial' },
-      { key: 'PRODUCAO',       label: 'ProduÃ§Ã£o',       icon: 'ðŸ­', cls: 'producao' },
-      { key: 'ADMINISTRATIVO', label: 'Administrativo', icon: 'ðŸ¢', cls: 'administrativo' }
+      { key: 'COMERCIAL',      label: 'Comercial',      icon: '💼', cls: 'comercial' },
+      { key: 'PRODUCAO',       label: 'Produção',       icon: '🏭', cls: 'producao' },
+      { key: 'ADMINISTRATIVO', label: 'Administrativo', icon: '🏢', cls: 'administrativo' }
     ];
 
     setoresDef.forEach(s => {
@@ -2557,7 +2564,7 @@ async function renderDashboard() {
         id: p.id,
         nome: p.full_name || p.email,
         cargo: p.position || '',
-        setorLabel: setorData ? setorData.label : (p.sector || 'â€”'),
+        setorLabel: setorData ? setorData.label : (p.sector || '—'),
         pontos: ptsPorUser[p.id] || 0
       };
     }).sort((a, b) => b.pontos - a.pontos).slice(0, 5);
@@ -2578,9 +2585,9 @@ async function renderDashboard() {
     }).length;
     if (pendentesAntigos > 0) {
       alertas.push({
-        tipo: 'warn', icon: 'â°',
-        titulo: pendentesAntigos + ' certificado' + (pendentesAntigos === 1 ? '' : 's') + ' pendente' + (pendentesAntigos === 1 ? '' : 's') + ' hÃ¡ mais de 15 dias',
-        desc: 'Aguardando validaÃ§Ã£o de supervisores'
+        tipo: 'warn', icon: '⏰',
+        titulo: pendentesAntigos + ' certificado' + (pendentesAntigos === 1 ? '' : 's') + ' pendente' + (pendentesAntigos === 1 ? '' : 's') + ' há mais de 15 dias',
+        desc: 'Aguardando validação de supervisores'
       });
     }
 
@@ -2588,7 +2595,7 @@ async function renderDashboard() {
     const semMeta = colaboradores.filter(p => !usersComMeta.has(p.id)).length;
     if (semMeta > 0) {
       alertas.push({
-        tipo: 'info', icon: 'ðŸ‘¤',
+        tipo: 'info', icon: '👤',
         titulo: semMeta + ' colaborador' + (semMeta === 1 ? '' : 'es') + ' sem metas cadastradas',
         desc: 'Podem estar fora do PDI por engano'
       });
@@ -2597,68 +2604,68 @@ async function renderDashboard() {
     const piorSetor = [...setoresDef].sort((a, b) => a.adesao - b.adesao)[0];
     if (piorSetor && piorSetor.adesao < 50 && piorSetor.total > 0) {
       alertas.push({
-        tipo: 'alert', icon: 'ðŸ“‰',
-        titulo: 'Setor ' + piorSetor.label + ' com ' + piorSetor.adesao + '% de adesÃ£o',
+        tipo: 'alert', icon: '📉',
+        titulo: 'Setor ' + piorSetor.label + ' com ' + piorSetor.adesao + '% de adesão',
         desc: 'Considere campanha de incentivo'
       });
     }
     if (alertas.length === 0) {
-      alertas.push({ tipo: 'ok', icon: 'âœ…', titulo: 'Nenhum ponto crÃ­tico identificado', desc: 'Todos os indicadores estÃ£o saudÃ¡veis' });
+      alertas.push({ tipo: 'ok', icon: '✅', titulo: 'Nenhum ponto crítico identificado', desc: 'Todos os indicadores estão saudáveis' });
     }
 
     const destaques = [];
     if (setoresDef[0] && setoresDef[0].pontos > 0) {
-      destaques.push({ tipo: 'ok', icon: 'ðŸ†', titulo: 'Setor ' + setoresDef[0].label + ' lidera com ' + setoresDef[0].pontos + ' pts', desc: setoresDef[0].adesao + '% de adesÃ£o' });
+      destaques.push({ tipo: 'ok', icon: '🏆', titulo: 'Setor ' + setoresDef[0].label + ' lidera com ' + setoresDef[0].pontos + ' pts', desc: setoresDef[0].adesao + '% de adesão' });
     }
     if (ranking[0] && ranking[0].pontos > 0) {
-      destaques.push({ tipo: 'ok', icon: 'â­', titulo: ranking[0].nome + ' Ã© o destaque do trimestre', desc: ranking[0].pontos + ' pontos acumulados' });
+      destaques.push({ tipo: 'ok', icon: '⭐', titulo: ranking[0].nome + ' é o destaque do trimestre', desc: ranking[0].pontos + ' pontos acumulados' });
     }
     if (cursosStats[0] && cursosStats[0].taxa > 70) {
-      destaques.push({ tipo: 'ok', icon: 'ðŸŽ“', titulo: '"' + cursosStats[0].curso.title + '" com ' + cursosStats[0].taxa + '% de conclusÃ£o', desc: cursosStats[0].conclusoes + ' de ' + cursosStats[0].matriculas + ' alunos' });
+      destaques.push({ tipo: 'ok', icon: '🎓', titulo: '"' + cursosStats[0].curso.title + '" com ' + cursosStats[0].taxa + '% de conclusão', desc: cursosStats[0].conclusoes + ' de ' + cursosStats[0].matriculas + ' alunos' });
     }
     if (destaques.length === 0) {
-      destaques.push({ tipo: 'info', icon: 'ðŸ“Š', titulo: 'Comece a incentivar o uso do PDI', desc: 'Ainda sem dados suficientes para destaques' });
+      destaques.push({ tipo: 'info', icon: '📊', titulo: 'Comece a incentivar o uso do PDI', desc: 'Ainda sem dados suficientes para destaques' });
     }
 
     const trend = (cur, prev) => {
-      if (prev === 0 && cur === 0) return { cls: 'flat', txt: 'â†’ estÃ¡vel' };
-      if (prev === 0) return { cls: 'up', txt: 'â†‘ novo' };
+      if (prev === 0 && cur === 0) return { cls: 'flat', txt: '→ estável' };
+      if (prev === 0) return { cls: 'up', txt: '↑ novo' };
       const diff = cur - prev;
       const pct = Math.round((diff / prev) * 100);
-      if (diff > 0) return { cls: 'up', txt: 'â†‘ ' + pct + '% vs. tri anterior' };
-      if (diff < 0) return { cls: 'down', txt: 'â†“ ' + Math.abs(pct) + '% vs. tri anterior' };
-      return { cls: 'flat', txt: 'â†’ estÃ¡vel' };
+      if (diff > 0) return { cls: 'up', txt: '↑ ' + pct + '% vs. tri anterior' };
+      if (diff < 0) return { cls: 'down', txt: '↓ ' + Math.abs(pct) + '% vs. tri anterior' };
+      return { cls: 'flat', txt: '→ estável' };
     };
     const tPontos = trend(pontosCur, pontosPrev);
     const tCursos = trend(cursosCur, cursosPrev);
 
-    const trimLabel = curQ + 'Âº TRI ' + curYear;
+    const trimLabel = curQ + 'º TRI ' + curYear;
 
     main.innerHTML = `
       <div class="dash-header">
         <div>
-          <h1>ðŸ“Š Dashboard Executivo</h1>
-          <p>VisÃ£o estratÃ©gica do PDI + CDE Academy</p>
+          <h1>📊 Dashboard Executivo</h1>
+          <p>Visão estratégica do PDI + CDE Academy</p>
         </div>
-        <div class="dash-periodo">ðŸ“… ${trimLabel}</div>
+        <div class="dash-periodo">📅 ${trimLabel}</div>
       </div>
 
       <div class="stats-grid">
-        ${renderDashKpi('ðŸ‘¥', colaboradores.length, 'Colaboradores ativos', null)}
-        ${renderDashKpi('ðŸŽ¯', taxaAdesao + '%', 'Taxa de adesÃ£o', tPontos)}
-        ${renderDashKpi('â­', pontosTotais.toLocaleString('pt-BR'), 'Pontos totais', tPontos)}
-        ${renderDashKpi('ðŸ“ˆ', mediaPorPessoa, 'MÃ©dia por pessoa', null)}
-        ${renderDashKpi('ðŸŽ“', horasTreinamento + 'h', 'Horas de treinamento', tCursos)}
+        ${renderDashKpi('👥', colaboradores.length, 'Colaboradores ativos', null)}
+        ${renderDashKpi('🎯', taxaAdesao + '%', 'Taxa de adesão', tPontos)}
+        ${renderDashKpi('⭐', pontosTotais.toLocaleString('pt-BR'), 'Pontos totais', tPontos)}
+        ${renderDashKpi('📈', mediaPorPessoa, 'Média por pessoa', null)}
+        ${renderDashKpi('🎓', horasTreinamento + 'h', 'Horas de treinamento', tCursos)}
       </div>
 
       <div class="dash-row-2">
         <div class="card">
-          <h2>ðŸ“ˆ EvoluÃ§Ã£o mensal <span class="badge-pill none" style="margin-left:auto; font-size:0.7rem;">Ãšltimos 6 meses</span></h2>
+          <h2>📈 Evolução mensal <span class="badge-pill none" style="margin-left:auto; font-size:0.7rem;">Últimos 6 meses</span></h2>
           <div style="position: relative; height: 240px;"><canvas id="dashEvolucaoChart"></canvas></div>
         </div>
 
         <div class="card">
-          <h2>ðŸŽ¯ Comparativo de setores</h2>
+          <h2>🎯 Comparativo de setores</h2>
           ${setoresDef.map((s, i) => {
             const posClasses = ['gold', 'silver', 'bronze'];
             const barWidth = Math.round((s.pontos / maxPontosSetor) * 100);
@@ -2668,7 +2675,7 @@ async function renderDashboard() {
                 <div class="dash-setor-icon ${s.cls}">${s.icon}</div>
                 <div class="dash-setor-info">
                   <div class="dash-setor-nome">${s.label}</div>
-                  <div class="dash-setor-meta">${s.total} colab. Â· ${s.adesao}% adesÃ£o</div>
+                  <div class="dash-setor-meta">${s.total} colab. · ${s.adesao}% adesão</div>
                   <div class="dash-setor-bar"><div class="dash-setor-bar-fill ${s.cls}" style="width: ${barWidth}%"></div></div>
                 </div>
                 <div class="dash-setor-pontos">${s.pontos} pts</div>
@@ -2677,7 +2684,7 @@ async function renderDashboard() {
           }).join('')}
           ${setoresDef[0] && setoresDef[0].pontos > 0 ? `
             <div class="dash-insight">
-              ðŸ’¡ O setor <strong>${setoresDef[0].label}</strong> concentra <strong>${pontosTotais > 0 ? Math.round((setoresDef[0].pontos / pontosTotais) * 100) : 0}%</strong> dos pontos da empresa.
+              💡 O setor <strong>${setoresDef[0].label}</strong> concentra <strong>${pontosTotais > 0 ? Math.round((setoresDef[0].pontos / pontosTotais) * 100) : 0}%</strong> dos pontos da empresa.
             </div>
           ` : ''}
         </div>
@@ -2685,9 +2692,9 @@ async function renderDashboard() {
 
       <div class="dash-row-half">
         <div class="card">
-          <h2>ðŸ† Top 5 colaboradores <span class="badge-pill none" style="margin-left:auto; font-size:0.7rem;">${trimLabel}</span></h2>
-          ${ranking.length === 0 ? '<p style="color:#6D6E71; font-size:0.88rem;">Nenhum dado disponÃ­vel ainda.</p>' : ranking.map((r, i) => {
-            const medals = ['ðŸ¥‡', 'ðŸ¥ˆ', 'ðŸ¥‰', '4', '5'];
+          <h2>🏆 Top 5 colaboradores <span class="badge-pill none" style="margin-left:auto; font-size:0.7rem;">${trimLabel}</span></h2>
+          ${ranking.length === 0 ? '<p style="color:#6D6E71; font-size:0.88rem;">Nenhum dado disponível ainda.</p>' : ranking.map((r, i) => {
+            const medals = ['🥇', '🥈', '🥉', '4', '5'];
             const iniciais = r.nome.trim().split(/\s+/).map(x => x[0]).slice(0, 2).join('').toUpperCase();
             return `
               <div class="dash-top-item">
@@ -2695,7 +2702,7 @@ async function renderDashboard() {
                 <div class="dash-top-avatar">${iniciais}</div>
                 <div class="dash-top-info">
                   <div class="dash-top-nome">${escapeHtml(r.nome)}</div>
-                  <div class="dash-top-setor">${escapeHtml(r.setorLabel)}${r.cargo ? ' Â· ' + escapeHtml(r.cargo) : ''}</div>
+                  <div class="dash-top-setor">${escapeHtml(r.setorLabel)}${r.cargo ? ' · ' + escapeHtml(r.cargo) : ''}</div>
                 </div>
                 <div class="dash-top-pts">${r.pontos} pts</div>
               </div>
@@ -2704,14 +2711,14 @@ async function renderDashboard() {
         </div>
 
         <div class="card">
-          <h2>ðŸ“š Top cursos da Academy <span class="badge-pill none" style="margin-left:auto; font-size:0.7rem;">Por conclusÃ£o</span></h2>
-          ${cursosStats.length === 0 ? '<p style="color:#6D6E71; font-size:0.88rem;">Nenhum curso com matrÃ­culas ainda.</p>' : cursosStats.map(cs => `
+          <h2>📚 Top cursos da Academy <span class="badge-pill none" style="margin-left:auto; font-size:0.7rem;">Por conclusão</span></h2>
+          ${cursosStats.length === 0 ? '<p style="color:#6D6E71; font-size:0.88rem;">Nenhum curso com matrículas ainda.</p>' : cursosStats.map(cs => `
             <div class="dash-curso-row">
               <div class="dash-curso-header">
                 <span class="dash-curso-nome">${escapeHtml(cs.curso.title)}</span>
                 <span class="dash-curso-pct">${cs.taxa}%</span>
               </div>
-              <div class="dash-curso-sub">${cs.conclusoes} de ${cs.matriculas} alunos concluÃ­ram</div>
+              <div class="dash-curso-sub">${cs.conclusoes} de ${cs.matriculas} alunos concluíram</div>
               <div class="dash-curso-bar"><div class="dash-curso-bar-fill" style="width: ${cs.taxa}%"></div></div>
             </div>
           `).join('')}
@@ -2720,11 +2727,11 @@ async function renderDashboard() {
 
       <div class="dash-row-half">
         <div class="card">
-          <h2>âš ï¸ Pontos de atenÃ§Ã£o</h2>
+          <h2>⚠️ Pontos de atenção</h2>
           ${alertas.map(a => renderDashAlert(a)).join('')}
         </div>
         <div class="card">
-          <h2>âœ… Destaques positivos</h2>
+          <h2>✅ Destaques positivos</h2>
           ${destaques.map(a => renderDashAlert(a)).join('')}
         </div>
       </div>
@@ -2771,7 +2778,7 @@ function renderDashAlert(a) {
 
 function initDashEvolucaoChart(meses) {
   if (typeof Chart === 'undefined') {
-    console.warn('Chart.js nÃ£o carregado.');
+    console.warn('Chart.js não carregado.');
     return;
   }
   const canvas = document.getElementById('dashEvolucaoChart');
@@ -2801,7 +2808,7 @@ function initDashEvolucaoChart(meses) {
           pointBorderWidth: 2
         },
         {
-          label: 'Cursos concluÃ­dos',
+          label: 'Cursos concluídos',
           data: meses.map(m => m.cursos),
           borderColor: '#7C3AED',
           backgroundColor: 'rgba(124, 58, 237, 0.05)',
@@ -2843,7 +2850,7 @@ function initDashEvolucaoChart(meses) {
   });
 }
 
-// ==================== NOTIFICAÃ‡Ã•ES ====================
+// ==================== NOTIFICAÇÕES ====================
 let notificationsList = [];
 let unreadNotifications = 0;
 
@@ -2866,7 +2873,7 @@ async function loadNotifications() {
     unreadNotifications = notificationsList.filter(n => !readSet.has(n.id)).length;
     updateNotifBadge();
   } catch (e) {
-    console.error('Erro ao carregar notificaÃ§Ãµes:', e);
+    console.error('Erro ao carregar notificações:', e);
   }
 }
 
@@ -2920,7 +2927,7 @@ async function markAllNotificationsRead() {
 function renderNotificationsList() {
   const container = document.getElementById('notifications-list');
   if (notificationsList.length === 0) {
-    container.innerHTML = '<div class="state-box"><span class="emoji">ðŸ”•</span>Nenhuma notificaÃ§Ã£o ainda.</div>';
+    container.innerHTML = '<div class="state-box"><span class="emoji">🔕</span>Nenhuma notificação ainda.</div>';
     return;
   }
   container.innerHTML = notificationsList.map(n => `
@@ -2948,8 +2955,8 @@ function closeNewNotificationForm() {
 async function sendNotification() {
   const title = document.getElementById('notif-title').value.trim();
   const message = document.getElementById('notif-message').value.trim();
-  if (!title) return showMessage('TÃ­tulo obrigatÃ³rio.', 'error');
-  if (!message) return showMessage('Mensagem obrigatÃ³ria.', 'error');
+  if (!title) return showMessage('Título obrigatório.', 'error');
+  if (!message) return showMessage('Mensagem obrigatória.', 'error');
 
   try {
     const { error } = await db.from('academy_notifications').insert({
@@ -2959,7 +2966,7 @@ async function sendNotification() {
       created_by_name: currentProfile.full_name || currentUser.email
     });
     if (error) throw error;
-    showMessage('NotificaÃ§Ã£o enviada para todos! ðŸ“¢', 'success');
+    showMessage('Notificação enviada para todos! 📢', 'success');
     closeNewNotificationForm();
     await loadNotifications();
     renderNotificationsList();
@@ -2968,7 +2975,7 @@ async function sendNotification() {
   }
 }
 
-// ==================== LOJA DE PRÃŠMIOS ====================
+// ==================== LOJA DE PRÊMIOS ====================
 let prizesCache = [];
 let editingPrizeId = null;
 let editingPrizeImageUrl = null;
@@ -2977,7 +2984,7 @@ let redeemUserBalance = null;
 
 async function renderPrizesView() {
   const main = document.getElementById('main-content');
-  main.innerHTML = '<div class="state-box">Carregando prÃªmiosâ€¦</div>';
+  main.innerHTML = '<div class="state-box">Carregando prêmios…</div>';
 
   try {
     const [prizesRes, myBalance, myRedemptionsRes] = await Promise.all([
@@ -3006,32 +3013,32 @@ async function renderPrizesView() {
 
       const adminBtns = canManage ? `
         <div style="display:flex; gap:6px; margin-top:10px; flex-wrap:wrap;">
-          <button class="btn-secondary btn-small" onclick="event.stopPropagation();openPrizeForm('${p.id}')">âœï¸ Editar</button>
-          <button class="btn-danger btn-small" onclick="event.stopPropagation();deletePrize('${p.id}')">ðŸ—‘</button>
+          <button class="btn-secondary btn-small" onclick="event.stopPropagation();openPrizeForm('${p.id}')">✏️ Editar</button>
+          <button class="btn-danger btn-small" onclick="event.stopPropagation();deletePrize('${p.id}')">🗑</button>
         </div>` : '';
 
       const actionBtn = canManage
         ? `<button class="btn-primary" style="width:100%; margin-top:10px; padding:10px;" onclick="openRedeemModal('${p.id}')" ${semEstoque || inativo ? 'disabled' : ''}>
-             ðŸŽ Resgatar para colaborador
+             🎁 Resgatar para colaborador
            </button>`
         : `<div style="margin-top:10px; padding:10px; text-align:center; font-size:0.78rem; font-weight:700; border-radius:8px;
              background:${disabledLabel ? 'var(--cinza-bg)' : 'var(--verde-bg)'};
              color:${disabledLabel ? 'var(--texto-soft)' : 'var(--verde)'};">
-             ${disabledLabel ? disabledLabel : 'âœ… VocÃª jÃ¡ pode resgatar!'}
+             ${disabledLabel ? disabledLabel : '✅ Você já pode resgatar!'}
            </div>`;
 
       return `
         <div class="course-card" style="cursor:default; ${inativo ? 'opacity:0.55;' : ''}">
           <div class="course-cover" style="${coverStyle}">
-            ${!p.image_url ? 'ðŸŽ' : ''}
-            <span class="course-badge" style="background: var(--cde-laranja); color:#fff;">â­ ${p.points_cost} pts</span>
+            ${!p.image_url ? '🎁' : ''}
+            <span class="course-badge" style="background: var(--cde-laranja); color:#fff;">⭐ ${p.points_cost} pts</span>
             ${semEstoque ? '<span class="course-badge" style="background:#FDE8EB; color:var(--cde-vermelho); top:auto; bottom:12px;">Sem estoque</span>' : ''}
           </div>
           <div class="course-body">
             <h3>${escapeHtml(p.name)}</h3>
-            <p>${escapeHtml(p.description || 'Sem descriÃ§Ã£o.')}</p>
+            <p>${escapeHtml(p.description || 'Sem descrição.')}</p>
             <div class="course-meta">
-              ${p.stock !== null ? `<span class="tag">ðŸ“¦ ${p.stock} disponÃ­ve${p.stock === 1 ? 'l' : 'is'}</span>` : '<span class="tag">â™¾ï¸ Estoque ilimitado</span>'}
+              ${p.stock !== null ? `<span class="tag">📦 ${p.stock} disponíve${p.stock === 1 ? 'l' : 'is'}</span>` : '<span class="tag">♾️ Estoque ilimitado</span>'}
             </div>
             ${actionBtn}
             ${adminBtns}
@@ -3041,28 +3048,28 @@ async function renderPrizesView() {
 
     main.innerHTML = `
       <div class="section-header">
-        <h2>ðŸ† Loja de PrÃªmios</h2>
+        <h2>🏆 Loja de Prêmios</h2>
         <span class="section-sub">Troque seus pontos por recompensas</span>
-        ${canManage ? `<div class="header-actions"><button class="btn-primary" onclick="openPrizeForm()">+ Novo PrÃªmio</button></div>` : ''}
+        ${canManage ? `<div class="header-actions"><button class="btn-primary" onclick="openPrizeForm()">+ Novo Prêmio</button></div>` : ''}
       </div>
 
       <div class="stats-grid">
-        ${kpi('ðŸ’Ž', myBalance.disponivel, 'Meus pontos disponÃ­veis', 'var(--cde-laranja-escuro)')}
-        ${kpi('â­', myBalance.ganhoTotal, 'Pontos acumulados', 'var(--roxo-medio)')}
-        ${kpi('ðŸŽ', myBalance.resgates, 'Pontos resgatados', 'var(--cde-vermelho)')}
-        ${kpi('ðŸ“œ', myRedemptions.length, 'PrÃªmios recebidos', 'var(--verde)')}
+        ${kpi('💎', myBalance.disponivel, 'Meus pontos disponíveis', 'var(--cde-laranja-escuro)')}
+        ${kpi('⭐', myBalance.ganhoTotal, 'Pontos acumulados', 'var(--roxo-medio)')}
+        ${kpi('🎁', myBalance.resgates, 'Pontos resgatados', 'var(--cde-vermelho)')}
+        ${kpi('📜', myRedemptions.length, 'Prêmios recebidos', 'var(--verde)')}
       </div>
 
       <div class="section-header" style="margin-top: 8px;">
-        <h2 style="font-size: 1.1rem;">ðŸŽ PrÃªmios disponÃ­veis</h2>
+        <h2 style="font-size: 1.1rem;">🎁 Prêmios disponíveis</h2>
       </div>
       ${prizesCache.length === 0
-        ? renderEmpty('ðŸŽ', canManage ? 'Nenhum prÃªmio cadastrado. Clique em "+ Novo PrÃªmio".' : 'Nenhum prÃªmio disponÃ­vel no momento.')
+        ? renderEmpty('🎁', canManage ? 'Nenhum prêmio cadastrado. Clique em "+ Novo Prêmio".' : 'Nenhum prêmio disponível no momento.')
         : `<div class="courses-grid">${prizesCache.map(prizeCard).join('')}</div>`}
 
       ${myRedemptions.length > 0 ? `
         <div class="section-header" style="margin-top: 20px;">
-          <h2 style="font-size: 1.1rem;">ðŸ“œ Meus resgates</h2>
+          <h2 style="font-size: 1.1rem;">📜 Meus resgates</h2>
         </div>
         <div style="background: var(--branco); border-radius:14px; padding:20px; border:1px solid var(--cinza-borda);">
           ${myRedemptions.map(r => `
@@ -3070,8 +3077,8 @@ async function renderPrizesView() {
               <div style="flex:1; min-width:180px;">
                 <div style="font-weight:700; font-size:0.9rem;">${escapeHtml(r.prize_name)}</div>
                 <div style="font-size:0.75rem; color:var(--texto-soft); margin-top:2px;">
-                  ${new Date(r.created_at).toLocaleDateString('pt-BR')} Â·
-                  ${r.status === 'delivered' ? 'âœ… Entregue' : r.status === 'cancelled' ? 'âŒ Cancelado' : 'â³ Pendente'}
+                  ${new Date(r.created_at).toLocaleDateString('pt-BR')} ·
+                  ${r.status === 'delivered' ? '✅ Entregue' : r.status === 'cancelled' ? '❌ Cancelado' : '⏳ Pendente'}
                 </div>
               </div>
               <div style="font-weight:800; color: var(--cde-vermelho); align-self:center;">-${r.points_spent} pts</div>
@@ -3084,11 +3091,11 @@ async function renderPrizesView() {
   }
 }
 
-// ---------- CRUD PRÃŠMIOS ----------
+// ---------- CRUD PRÊMIOS ----------
 function openPrizeForm(prizeId = null) {
   editingPrizeId = prizeId;
   editingPrizeImageUrl = null;
-  document.getElementById('pf-title-h').textContent = prizeId ? 'Editar PrÃªmio' : 'Novo PrÃªmio';
+  document.getElementById('pf-title-h').textContent = prizeId ? 'Editar Prêmio' : 'Novo Prêmio';
   const name = document.getElementById('pf-name'), desc = document.getElementById('pf-desc'),
         cost = document.getElementById('pf-cost'), stock = document.getElementById('pf-stock'),
         active = document.getElementById('pf-active');
@@ -3105,7 +3112,7 @@ function openPrizeForm(prizeId = null) {
       stock.value = p.stock === null ? '' : (p.stock || 0);
       active.checked = p.is_active !== false;
       editingPrizeImageUrl = p.image_url || null;
-      if (p.image_url) document.getElementById('pf-image-name').textContent = 'âœ“ Imagem atual mantida';
+      if (p.image_url) document.getElementById('pf-image-name').textContent = '✓ Imagem atual mantida';
     }
   }
   document.getElementById('prize-form-modal').classList.remove('hidden');
@@ -3116,7 +3123,7 @@ function closePrizeForm() {
 }
 function onPrizeImageChange(e) {
   const f = e.target.files[0];
-  document.getElementById('pf-image-name').textContent = f ? 'âœ“ ' + f.name : '';
+  document.getElementById('pf-image-name').textContent = f ? '✓ ' + f.name : '';
 }
 async function savePrize() {
   const name = document.getElementById('pf-name').value.trim();
@@ -3127,7 +3134,7 @@ async function savePrize() {
   const is_active = document.getElementById('pf-active').checked;
   const file = document.getElementById('pf-image').files[0];
 
-  if (!name) return showMessage('Nome obrigatÃ³rio.', 'error');
+  if (!name) return showMessage('Nome obrigatório.', 'error');
   if (!points_cost || points_cost <= 0) return showMessage('Custo deve ser maior que zero.', 'error');
 
   try {
@@ -3142,12 +3149,12 @@ async function savePrize() {
     if (editingPrizeId) {
       const { error } = await db.from('academy_prizes').update(payload).eq('id', editingPrizeId);
       if (error) throw error;
-      showMessage('PrÃªmio atualizado!', 'success');
+      showMessage('Prêmio atualizado!', 'success');
     } else {
       payload.created_by = currentUser.id;
       const { error } = await db.from('academy_prizes').insert(payload);
       if (error) throw error;
-      showMessage('PrÃªmio criado!', 'success');
+      showMessage('Prêmio criado!', 'success');
     }
     closePrizeForm();
     await renderPrizesView();
@@ -3156,11 +3163,11 @@ async function savePrize() {
 async function deletePrize(prizeId) {
   const p = prizesCache.find(x => x.id === prizeId);
   if (!p) return;
-  if (!confirm(`Excluir o prÃªmio "${p.name}"?\n\nResgates antigos serÃ£o mantidos no histÃ³rico.`)) return;
+  if (!confirm(`Excluir o prêmio "${p.name}"?\n\nResgates antigos serão mantidos no histórico.`)) return;
   try {
     const { error } = await db.from('academy_prizes').delete().eq('id', prizeId);
     if (error) throw error;
-    showMessage('PrÃªmio excluÃ­do.', 'success');
+    showMessage('Prêmio excluído.', 'success');
     await renderPrizesView();
   } catch (e) { showMessage('Erro: ' + e.message, 'error'); }
 }
@@ -3170,21 +3177,21 @@ async function openRedeemModal(prizeId) {
   const prize = prizesCache.find(p => p.id === prizeId);
   if (!prize) return;
   redeemTargetPrize = prize;
-  document.getElementById('redeem-subtitle').textContent = `${prize.name} Â· ${prize.points_cost} pts`;
+  document.getElementById('redeem-subtitle').textContent = `${prize.name} · ${prize.points_cost} pts`;
   document.getElementById('redeem-notes').value = '';
   document.getElementById('redeem-warning').classList.add('hidden');
   document.getElementById('redeem-confirm-btn').disabled = false;
 
   // Carrega colaboradores
   const sel = document.getElementById('redeem-user-select');
-  sel.innerHTML = '<option>Carregandoâ€¦</option>';
+  sel.innerHTML = '<option>Carregando…</option>';
   const { data: profiles } = await db.from('profiles')
     .select('id, full_name, email, sector, role').order('full_name');
   const allowed = ['employee', 'colaborador', 'supervisor'];
   const list = (profiles || []).filter(p => allowed.includes((p.role || '').toLowerCase()));
 
-  sel.innerHTML = '<option value="">â€” Selecione â€”</option>' +
-    list.map(p => `<option value="${p.id}">${escapeHtml(p.full_name || p.email)}${p.sector ? ' â€” ' + escapeHtml(p.sector) : ''}</option>`).join('');
+  sel.innerHTML = '<option value="">— Selecione —</option>' +
+    list.map(p => `<option value="${p.id}">${escapeHtml(p.full_name || p.email)}${p.sector ? ' — ' + escapeHtml(p.sector) : ''}</option>`).join('');
   sel.onchange = onRedeemUserChange;
 
   document.getElementById('redeem-user-info').textContent = 'Selecione um colaborador para ver o saldo.';
@@ -3205,7 +3212,7 @@ async function onRedeemUserChange() {
     return;
   }
 
-  infoBox.textContent = 'Consultando saldoâ€¦';
+  infoBox.textContent = 'Consultando saldo…';
   redeemUserBalance = await getUserPointsBalance(userId);
 
   const custo = redeemTargetPrize.points_cost;
@@ -3214,15 +3221,15 @@ async function onRedeemUserChange() {
 
   infoBox.innerHTML = `
     <div style="display:flex; justify-content:space-between; gap:10px;">
-      <span>Saldo disponÃ­vel:</span>
+      <span>Saldo disponível:</span>
       <strong style="color:${ok ? 'var(--verde)' : 'var(--cde-vermelho)'};">${saldo} pts</strong>
     </div>
     <div style="display:flex; justify-content:space-between; gap:10px; margin-top:4px;">
-      <span>Custo do prÃªmio:</span>
+      <span>Custo do prêmio:</span>
       <strong>${custo} pts</strong>
     </div>
     <div style="display:flex; justify-content:space-between; gap:10px; margin-top:8px; padding-top:8px; border-top:1px dashed var(--cinza-borda);">
-      <span>Saldo apÃ³s resgate:</span>
+      <span>Saldo após resgate:</span>
       <strong style="color:${ok ? 'var(--cde-laranja-escuro)' : 'var(--cde-vermelho)'};">${saldo - custo} pts</strong>
     </div>`;
 
@@ -3247,10 +3254,10 @@ async function confirmRedemption() {
   if (redeemUserBalance.disponivel < prize.points_cost) {
     return showMessage('Saldo insuficiente.', 'error');
   }
-  if (!confirm(`Confirmar resgate de "${prize.name}" (${prize.points_cost} pts)?\n\nO saldo do colaborador serÃ¡ reduzido.`)) return;
+  if (!confirm(`Confirmar resgate de "${prize.name}" (${prize.points_cost} pts)?\n\nO saldo do colaborador será reduzido.`)) return;
 
   const btn = document.getElementById('redeem-confirm-btn');
-  btn.disabled = true; btn.textContent = 'Processandoâ€¦';
+  btn.disabled = true; btn.textContent = 'Processando…';
 
   try {
     // 1. Registra o resgate
@@ -3271,10 +3278,10 @@ async function confirmRedemption() {
       await db.from('academy_prizes').update({ stock: prize.stock - 1 }).eq('id', prize.id);
     }
 
-    // 3. Se foi para o prÃ³prio usuÃ¡rio logado, atualiza a topbar
+    // 3. Se foi para o próprio usuário logado, atualiza a topbar
     if (userId === currentUser.id) await loadTopbarPoints();
 
-    showMessage(`ðŸŽ "${prize.name}" resgatado! -${prize.points_cost} pts.`, 'success');
+    showMessage(`🎁 "${prize.name}" resgatado! -${prize.points_cost} pts.`, 'success');
     closeRedeemModal();
     await renderPrizesView();
   } catch (e) {
@@ -3284,7 +3291,7 @@ async function confirmRedemption() {
   }
 }
 
-// ==================== CADASTRO DE USUÃRIOS ====================
+// ==================== CADASTRO DE USUÁRIOS ====================
 function openNewUserModal() {
   document.getElementById('nu-name').value = '';
   document.getElementById('nu-email').value = '';
@@ -3298,7 +3305,7 @@ function openNewUserModal() {
 
   const btn = document.getElementById('nu-save-btn');
   btn.disabled = false;
-  btn.textContent = 'Criar usuÃ¡rio';
+  btn.textContent = 'Criar usuário';
 
   document.getElementById('new-user-modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('nu-name').focus(), 100);
@@ -3319,19 +3326,19 @@ async function createNewUser() {
   const isProfessor = document.getElementById('nu-is-professor').checked;
   const isMaster    = document.getElementById('nu-is-master').checked;
 
-  // ValidaÃ§Ãµes
-  if (!fullName) return showMessage('Nome completo Ã© obrigatÃ³rio.', 'error');
-  if (!email) return showMessage('E-mail Ã© obrigatÃ³rio.', 'error');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showMessage('E-mail invÃ¡lido.', 'error');
+  // Validações
+  if (!fullName) return showMessage('Nome completo é obrigatório.', 'error');
+  if (!email) return showMessage('E-mail é obrigatório.', 'error');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showMessage('E-mail inválido.', 'error');
   if (!password || password.length < 6) return showMessage('A senha deve ter ao menos 6 caracteres.', 'error');
-  if (password !== password2) return showMessage('As senhas nÃ£o conferem.', 'error');
+  if (password !== password2) return showMessage('As senhas não conferem.', 'error');
 
   const btn = document.getElementById('nu-save-btn');
   btn.disabled = true;
-  btn.textContent = 'Criandoâ€¦';
+  btn.textContent = 'Criando…';
 
   try {
-    // 1) Cria o usuÃ¡rio no Supabase Auth (client temporÃ¡rio, nÃ£o afeta a sessÃ£o atual)
+    // 1) Cria o usuário no Supabase Auth (client temporário, não afeta a sessão atual)
     const { data: signUpData, error: signUpErr } = await dbSignup.auth.signUp({
       email,
       password,
@@ -3342,7 +3349,7 @@ async function createNewUser() {
 
     if (signUpErr) throw signUpErr;
     const newUserId = signUpData?.user?.id;
-    if (!newUserId) throw new Error('NÃ£o foi possÃ­vel obter o ID do usuÃ¡rio criado.');
+    if (!newUserId) throw new Error('Não foi possível obter o ID do usuário criado.');
 
     // 2) Cria o perfil na tabela profiles
     const { error: profErr } = await db.from('profiles').insert({
@@ -3358,30 +3365,516 @@ async function createNewUser() {
     });
     if (profErr) throw profErr;
 
-    // 3) Limpeza preventiva da sessÃ£o temporÃ¡ria
+    // 3) Limpeza preventiva da sessão temporária
     try { await dbSignup.auth.signOut(); } catch (e) { /* silent */ }
 
-    showMessage(`âœ… ${fullName} cadastrado com sucesso!`, 'success');
+    showMessage(`✅ ${fullName} cadastrado com sucesso!`, 'success');
     closeNewUserModal();
 
-    // Se a tela de matrÃ­culas estiver aberta, atualiza a lista de colaboradores
+    // Se a tela de matrículas estiver aberta, atualiza a lista de colaboradores
     const enrollModal = document.getElementById('enroll-modal');
     if (enrollModal && !enrollModal.classList.contains('hidden')) {
       await loadEnrollUserSelect();
     }
   } catch (e) {
-    console.error('Erro ao criar usuÃ¡rio:', e);
+    console.error('Erro ao criar usuário:', e);
     let msg = e.message || 'Erro desconhecido';
     if (/already registered|already been registered|User already/i.test(msg))
-      msg = 'Este e-mail jÃ¡ estÃ¡ cadastrado no sistema.';
+      msg = 'Este e-mail já está cadastrado no sistema.';
     else if (/Password should be/i.test(msg))
-      msg = 'Senha muito fraca. Use ao menos 6 caracteres com letras e nÃºmeros.';
+      msg = 'Senha muito fraca. Use ao menos 6 caracteres com letras e números.';
     else if (/invalid email/i.test(msg))
-      msg = 'E-mail invÃ¡lido.';
+      msg = 'E-mail inválido.';
     showMessage('Erro: ' + msg, 'error');
     btn.disabled = false;
-    btn.textContent = 'Criar usuÃ¡rio';
+    btn.textContent = 'Criar usuário';
   }
+}
+
+// ==================== BIBLIOTECA ====================
+let libraryBooks = [];
+let editingBookId = null;
+let editingBookPdfUrl = null;
+let editingBookCoverUrl = null;
+let currentReadingBook = null;
+let isLibraryAdmin = false;
+
+async function renderLibraryView() {
+  const main = document.getElementById('main-content');
+  main.innerHTML = '<div class="state-box">Carregando biblioteca…</div>';
+
+  // Registra visita à página (1x por dia por sessão)
+  const pvKey = 'cde-lib-page-view-' + new Date().toDateString();
+  if (!sessionStorage.getItem(pvKey)) {
+    sessionStorage.setItem(pvKey, '1');
+    logLibraryAction('page_view');
+  }
+
+  try {
+    const { data, error } = await db
+      .from('academy_library_books')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+
+    const allBooks = data || [];
+    libraryBooks = isLibraryAdmin ? allBooks : allBooks.filter(b => b.is_active !== false);
+
+    const total = libraryBooks.length;
+    const categorias = new Set(libraryBooks.map(b => b.category).filter(Boolean)).size;
+
+    const bookCard = (b) => {
+      const coverStyle = b.cover_url
+        ? `background-image: url('${escapeHtml(b.cover_url)}'); background-size: cover; background-position: center;`
+        : '';
+      const inativo = b.is_active === false;
+
+      const adminBtns = isLibraryAdmin ? `
+        <div style="display:flex; gap:6px; margin-top:10px; flex-wrap:wrap;">
+          <button class="btn-secondary btn-small" onclick="event.stopPropagation();openBookForm('${b.id}')">✏️ Editar</button>
+          <button class="btn-danger btn-small" onclick="event.stopPropagation();deleteBook('${b.id}')">🗑</button>
+        </div>` : '';
+
+      return `
+        <div class="course-card" style="cursor:pointer; ${inativo ? 'opacity:0.55;' : ''}" onclick="openBookReader('${b.id}')">
+          <div class="course-cover" style="${coverStyle}">
+            ${!b.cover_url ? '📖' : ''}
+            ${b.category ? `<span class="course-badge" style="background: var(--cde-laranja); color:#fff;">${escapeHtml(b.category)}</span>` : ''}
+            ${inativo ? '<span class="course-badge" style="background:#FDE8EB; color:var(--cde-vermelho); top:auto; bottom:12px;">Inativo</span>' : ''}
+          </div>
+          <div class="course-body">
+            <h3>${escapeHtml(b.title)}</h3>
+            ${b.author ? `<p style="font-size:0.78rem; color:var(--texto-soft); font-style:italic; margin-bottom:6px; font-weight:600;">por ${escapeHtml(b.author)}</p>` : ''}
+            <p>${escapeHtml(b.description || 'Sem descrição.')}</p>
+            <div style="display:flex; gap:6px; margin-top:10px; flex-wrap:wrap;">
+              <button class="btn-primary btn-small" style="flex:1; padding:10px;" onclick="event.stopPropagation();openBookReader('${b.id}')">📖 Ler</button>
+              <button class="btn-secondary btn-small" onclick="event.stopPropagation();downloadBook('${b.id}')" title="Baixar PDF">📥</button>
+            </div>
+            ${adminBtns}
+          </div>
+        </div>`;
+    };
+
+    main.innerHTML = `
+      <div class="section-header">
+        <h2>📖 Biblioteca</h2>
+        <span class="section-sub">${total} livro${total === 1 ? '' : 's'} disponíve${total === 1 ? 'l' : 'is'}${categorias > 0 ? ' · ' + categorias + ' categoria' + (categorias === 1 ? '' : 's') : ''}</span>
+        ${isLibraryAdmin ? `<div class="header-actions"><button class="btn-primary" onclick="openBookForm()">+ Novo Livro</button></div>` : ''}
+      </div>
+
+      ${libraryBooks.length === 0
+        ? renderEmpty('📖', isLibraryAdmin ? 'Nenhum livro cadastrado. Clique em "+ Novo Livro".' : 'Nenhum livro disponível no momento.')
+        : `<div class="courses-grid">${libraryBooks.map(bookCard).join('')}</div>`}
+    `;
+  } catch (e) {
+    console.error('Erro renderLibraryView:', e);
+    main.innerHTML = `<div class="state-box" style="color:var(--cde-vermelho);">Erro ao carregar biblioteca: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function logLibraryAction(action, bookId = null, bookTitle = null) {
+  try {
+    await db.from('academy_library_logs').insert({
+      user_id: currentUser.id,
+      user_name: currentProfile.full_name || currentUser.email,
+      user_sector: currentProfile.sector || null,
+      book_id: bookId,
+      book_title: bookTitle,
+      action
+    });
+  } catch (e) {
+    console.warn('Erro ao registrar log da biblioteca:', e);
+  }
+}
+
+async function openBookReader(bookId) {
+  const book = libraryBooks.find(b => b.id === bookId);
+  if (!book) return showMessage('Livro não encontrado.', 'error');
+
+  currentReadingBook = book;
+  document.getElementById('br-title').textContent = book.title;
+  document.getElementById('br-author').textContent = book.author ? 'por ' + book.author : '—';
+  document.getElementById('br-iframe').src = book.pdf_url;
+  document.getElementById('book-reader').classList.remove('hidden');
+
+  await logLibraryAction('book_open', book.id, book.title);
+}
+
+function closeBookReader() {
+  document.getElementById('book-reader').classList.add('hidden');
+  document.getElementById('br-iframe').src = 'about:blank';
+  currentReadingBook = null;
+}
+
+async function downloadCurrentBook() {
+  if (!currentReadingBook) return;
+  await downloadBook(currentReadingBook.id);
+}
+
+async function downloadBook(bookId) {
+  const book = libraryBooks.find(b => b.id === bookId);
+  if (!book) return;
+
+  await logLibraryAction('book_download', book.id, book.title);
+
+  try {
+    const link = document.createElement('a');
+    link.href = book.pdf_url;
+    link.download = (book.title || 'livro').replace(/[^a-zA-Z0-9 \-_]/g, '') + '.pdf';
+    link.target = '_blank';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showMessage('Download iniciado. 📥', 'success');
+  } catch (e) {
+    window.open(book.pdf_url, '_blank');
+  }
+}
+
+// CRUD LIVRO
+function openBookForm(bookId = null) {
+  if (!isLibraryAdmin) return showMessage('Apenas Master pode gerenciar a biblioteca.', 'error');
+
+  editingBookId = bookId;
+  editingBookPdfUrl = null;
+  editingBookCoverUrl = null;
+
+  document.getElementById('bf-title-h').textContent = bookId ? 'Editar Livro' : 'Novo Livro';
+  document.getElementById('bf-title').value = '';
+  document.getElementById('bf-author').value = '';
+  document.getElementById('bf-category').value = '';
+  document.getElementById('bf-desc').value = '';
+  document.getElementById('bf-pdf').value = '';
+  document.getElementById('bf-cover').value = '';
+  document.getElementById('bf-pdf-name').textContent = '';
+  document.getElementById('bf-cover-name').textContent = '';
+  document.getElementById('bf-active').checked = true;
+
+  if (bookId) {
+    const b = libraryBooks.find(x => x.id === bookId);
+    if (b) {
+      document.getElementById('bf-title').value = b.title || '';
+      document.getElementById('bf-author').value = b.author || '';
+      document.getElementById('bf-category').value = b.category || '';
+      document.getElementById('bf-desc').value = b.description || '';
+      document.getElementById('bf-active').checked = b.is_active !== false;
+      editingBookPdfUrl = b.pdf_url || null;
+      editingBookCoverUrl = b.cover_url || null;
+      if (b.pdf_url) document.getElementById('bf-pdf-name').textContent = '✓ PDF atual mantido';
+      if (b.cover_url) document.getElementById('bf-cover-name').textContent = '✓ Capa atual mantida';
+    }
+  }
+
+  document.getElementById('book-form-modal').classList.remove('hidden');
+}
+
+function closeBookForm() {
+  document.getElementById('book-form-modal').classList.add('hidden');
+  editingBookId = null;
+  editingBookPdfUrl = null;
+  editingBookCoverUrl = null;
+}
+
+function onBookPdfChange(e) {
+  const f = e.target.files[0];
+  document.getElementById('bf-pdf-name').textContent = f ? '✓ ' + f.name : '';
+}
+function onBookCoverChange(e) {
+  const f = e.target.files[0];
+  document.getElementById('bf-cover-name').textContent = f ? '✓ ' + f.name : '';
+}
+
+async function saveBook() {
+  const title = document.getElementById('bf-title').value.trim();
+  const author = document.getElementById('bf-author').value.trim();
+  const category = document.getElementById('bf-category').value || null;
+  const description = document.getElementById('bf-desc').value.trim();
+  const is_active = document.getElementById('bf-active').checked;
+  const pdfFile = document.getElementById('bf-pdf').files[0];
+  const coverFile = document.getElementById('bf-cover').files[0];
+
+  if (!title) return showMessage('Título obrigatório.', 'error');
+  if (!editingBookId && !pdfFile) return showMessage('Selecione o PDF do livro.', 'error');
+
+  const btn = document.getElementById('bf-save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Salvando…';
+
+  try {
+    let pdf_url = editingBookPdfUrl;
+    let cover_url = editingBookCoverUrl;
+
+    if (pdfFile) {
+      if (pdfFile.size > 50 * 1024 * 1024) throw new Error('PDF muito grande. Máximo 50MB.');
+      const path = `library/pdfs/${Date.now()}_${pdfFile.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+      const { error: upErr } = await db.storage.from(BUCKET).upload(path, pdfFile, { upsert: true });
+      if (upErr) throw upErr;
+      pdf_url = db.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+    }
+
+    if (coverFile) {
+      if (coverFile.size > 5 * 1024 * 1024) throw new Error('Capa muito grande. Máximo 5MB.');
+      const path = `library/covers/${Date.now()}_${coverFile.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+      const { error: upErr } = await db.storage.from(BUCKET).upload(path, coverFile, { upsert: true });
+      if (upErr) throw upErr;
+      cover_url = db.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+    }
+
+    const payload = {
+      title,
+      author: author || null,
+      category,
+      description: description || null,
+      pdf_url,
+      cover_url,
+      is_active
+    };
+
+    if (editingBookId) {
+      const { error } = await db.from('academy_library_books').update(payload).eq('id', editingBookId);
+      if (error) throw error;
+      showMessage('Livro atualizado!', 'success');
+    } else {
+      payload.created_by = currentUser.id;
+      payload.created_by_name = currentProfile.full_name || currentUser.email;
+      const { error } = await db.from('academy_library_books').insert(payload);
+      if (error) throw error;
+      showMessage('Livro adicionado! 📖', 'success');
+    }
+
+    closeBookForm();
+    await renderLibraryView();
+  } catch (e) {
+    console.error('Erro saveBook:', e);
+    showMessage('Erro: ' + (e.message || 'falha ao salvar'), 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Salvar Livro';
+  }
+}
+
+async function deleteBook(bookId) {
+  const b = libraryBooks.find(x => x.id === bookId);
+  if (!b) return;
+  if (!confirm(`Excluir o livro "${b.title}"?\n\nO log de acessos será mantido para auditoria.`)) return;
+  try {
+    const { error } = await db.from('academy_library_books').delete().eq('id', bookId);
+    if (error) throw error;
+    showMessage('Livro excluído.', 'success');
+    await renderLibraryView();
+  } catch (e) {
+    showMessage('Erro: ' + e.message, 'error');
+  }
+}
+
+// ==================== LOG DE ACESSOS À BIBLIOTECA ====================
+let libraryLogsCache = [];
+let libraryLogsFilters = { user: '', action: '', search: '' };
+
+async function renderLibraryLogsView() {
+  if (!isLibraryAdmin) return showMessage('Acesso restrito.', 'error');
+
+  const main = document.getElementById('main-content');
+  main.innerHTML = '<div class="state-box">Carregando logs…</div>';
+
+  try {
+    const { data, error } = await db
+      .from('academy_library_logs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(1000);
+    if (error) throw error;
+
+    libraryLogsCache = data || [];
+
+    const hoje = new Date().toDateString();
+    const totalHoje    = libraryLogsCache.filter(l => new Date(l.created_at).toDateString() === hoje).length;
+    const usersUnicos  = new Set(libraryLogsCache.map(l => l.user_id)).size;
+    const livrosAbertos = libraryLogsCache.filter(l => l.action === 'book_open').length;
+    const downloads    = libraryLogsCache.filter(l => l.action === 'book_download').length;
+    const pageViews    = libraryLogsCache.filter(l => l.action === 'page_view').length;
+
+    main.innerHTML = `
+      <div class="section-header">
+        <h2>📋 Log da Biblioteca</h2>
+        <span class="section-sub">Histórico de acessos aos livros</span>
+        <div class="header-actions">
+          <button class="btn-secondary" onclick="exportLibraryLogsCSV()">📥 Exportar CSV</button>
+        </div>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-icon">👁</div><div class="stat-value">${pageViews}</div><div class="stat-label">Visitas à página</div></div>
+        <div class="stat-card"><div class="stat-icon">📖</div><div class="stat-value" style="color:var(--verde);">${livrosAbertos}</div><div class="stat-label">Livros abertos</div></div>
+        <div class="stat-card"><div class="stat-icon">📥</div><div class="stat-value" style="color:var(--cde-laranja-escuro);">${downloads}</div><div class="stat-label">Downloads</div></div>
+        <div class="stat-card"><div class="stat-icon">👥</div><div class="stat-value" style="color:var(--roxo-medio);">${usersUnicos}</div><div class="stat-label">Usuários únicos</div></div>
+        <div class="stat-card"><div class="stat-icon">📅</div><div class="stat-value" style="color:var(--azul);">${totalHoje}</div><div class="stat-label">Eventos hoje</div></div>
+      </div>
+
+      <div style="background: var(--branco); border-radius:14px; padding:18px; border:1px solid var(--cinza-borda); margin-bottom:16px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px;">
+          <div class="form-group" style="margin: 0;">
+            <label style="font-size: 0.75rem;">Buscar</label>
+            <input type="text" id="liblog-search" placeholder="Nome, livro, setor..." value="${escapeHtml(libraryLogsFilters.search)}" oninput="applyLibraryLogFilters()">
+          </div>
+          <div class="form-group" style="margin: 0;">
+            <label style="font-size: 0.75rem;">Usuário</label>
+            <select id="liblog-user-filter" onchange="applyLibraryLogFilters()">
+              <option value="">Todos</option>
+              ${[...new Set(libraryLogsCache.map(l => JSON.stringify({ id: l.user_id, name: l.user_name })))]
+                .map(s => JSON.parse(s))
+                .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+                .map(u => `<option value="${u.id}" ${libraryLogsFilters.user === u.id ? 'selected' : ''}>${escapeHtml(u.name || '—')}</option>`)
+                .join('')}
+            </select>
+          </div>
+          <div class="form-group" style="margin: 0;">
+            <label style="font-size: 0.75rem;">Ação</label>
+            <select id="liblog-action-filter" onchange="applyLibraryLogFilters()">
+              <option value="">Todas</option>
+              <option value="page_view"     ${libraryLogsFilters.action === 'page_view' ? 'selected' : ''}>👁 Visita à página</option>
+              <option value="book_open"     ${libraryLogsFilters.action === 'book_open' ? 'selected' : ''}>📖 Livro aberto</option>
+              <option value="book_download" ${libraryLogsFilters.action === 'book_download' ? 'selected' : ''}>📥 Download</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div id="liblog-results"></div>
+    `;
+
+    renderLibraryLogsResults();
+  } catch (e) {
+    console.error('Erro renderLibraryLogsView:', e);
+    main.innerHTML = `<div class="state-box" style="color:var(--cde-vermelho);">Erro: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function applyLibraryLogFilters() {
+  libraryLogsFilters.search = (document.getElementById('liblog-search')?.value || '').toLowerCase().trim();
+  libraryLogsFilters.user   = document.getElementById('liblog-user-filter')?.value || '';
+  libraryLogsFilters.action = document.getElementById('liblog-action-filter')?.value || '';
+  renderLibraryLogsResults();
+}
+
+function renderLibraryLogsResults() {
+  const container = document.getElementById('liblog-results');
+  if (!container) return;
+
+  let filtered = libraryLogsCache;
+  if (libraryLogsFilters.user)   filtered = filtered.filter(l => l.user_id === libraryLogsFilters.user);
+  if (libraryLogsFilters.action) filtered = filtered.filter(l => l.action === libraryLogsFilters.action);
+  if (libraryLogsFilters.search) {
+    const q = libraryLogsFilters.search;
+    filtered = filtered.filter(l =>
+      (l.user_name || '').toLowerCase().includes(q) ||
+      (l.book_title || '').toLowerCase().includes(q) ||
+      (l.user_sector || '').toLowerCase().includes(q)
+    );
+  }
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="state-box"><span class="emoji">🔍</span>Nenhum evento encontrado com esses filtros.</div>';
+    return;
+  }
+
+  const actionMeta = {
+    page_view:     { icon: '👁', label: 'Visita à página', color: 'var(--azul)' },
+    book_open:     { icon: '📖', label: 'Livro aberto',    color: 'var(--verde)' },
+    book_download: { icon: '📥', label: 'Download',        color: 'var(--cde-laranja-escuro)' }
+  };
+
+  const groups = {};
+  filtered.forEach(l => {
+    const d = new Date(l.created_at).toLocaleDateString('pt-BR');
+    if (!groups[d]) groups[d] = [];
+    groups[d].push(l);
+  });
+
+  container.innerHTML = Object.entries(groups).map(([dia, eventos]) => `
+    <div style="margin-bottom: 20px;">
+      <div style="font-size: 0.82rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: var(--texto-soft); margin-bottom: 10px; padding-bottom: 6px; border-bottom: 2px solid var(--cinza-borda);">
+        📅 ${dia} · ${eventos.length} evento${eventos.length === 1 ? '' : 's'}
+      </div>
+      <div style="background: var(--branco); border-radius:12px; padding: 4px 16px; border:1px solid var(--cinza-borda);">
+        ${eventos.map((l, i) => {
+          const meta = actionMeta[l.action] || { icon: '•', label: l.action, color: 'var(--texto-soft)' };
+          const hora = new Date(l.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+          return `
+            <div style="padding: 12px 0; ${i < eventos.length - 1 ? 'border-bottom: 1px solid var(--cinza-borda);' : ''} display: flex; gap: 12px; align-items: flex-start;">
+              <div style="font-size: 1.4rem; line-height: 1;">${meta.icon}</div>
+              <div style="flex: 1; min-width: 0;">
+                <div style="font-size: 0.9rem; font-weight: 600;">
+                  <span style="color: ${meta.color}; font-weight: 700;">${escapeHtml(l.user_name || '—')}</span>
+                  ${l.user_sector ? `<span style="color: var(--texto-soft); font-weight: 500; font-size: 0.8rem;"> (${escapeHtml(l.user_sector)})</span>` : ''}
+                  <span style="color: var(--texto-soft); font-weight: 500;"> — ${meta.label}</span>
+                  ${l.book_title ? ` <span style="color: var(--texto);">"${escapeHtml(l.book_title)}"</span>` : ''}
+                </div>
+              </div>
+              <div style="font-size: 0.75rem; color: var(--texto-mute); white-space: nowrap;">${hora}</div>
+            </div>`;
+        }).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+function exportLibraryLogsCSV() {
+  if (!libraryLogsCache || libraryLogsCache.length === 0) {
+    return showMessage('Nenhum evento para exportar.', 'info');
+  }
+
+  let filtered = [...libraryLogsCache];
+  if (libraryLogsFilters.user)   filtered = filtered.filter(l => l.user_id === libraryLogsFilters.user);
+  if (libraryLogsFilters.action) filtered = filtered.filter(l => l.action === libraryLogsFilters.action);
+  if (libraryLogsFilters.search) {
+    const q = libraryLogsFilters.search;
+    filtered = filtered.filter(l =>
+      (l.user_name || '').toLowerCase().includes(q) ||
+      (l.book_title || '').toLowerCase().includes(q) ||
+      (l.user_sector || '').toLowerCase().includes(q)
+    );
+  }
+
+  if (filtered.length === 0) return showMessage('Nenhum evento corresponde aos filtros.', 'info');
+
+  const actionLabel = { page_view: 'Visita à página', book_open: 'Livro aberto', book_download: 'Download' };
+  const headers = ['Data', 'Hora', 'Usuário', 'Setor', 'Ação', 'Livro'];
+
+  const csvEscape = (v) => {
+    if (v === null || v === undefined) return '';
+    const s = String(v);
+    return /[",;\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+
+  const rows = filtered.map(l => {
+    const dt = new Date(l.created_at);
+    return [
+      dt.toLocaleDateString('pt-BR'),
+      dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+      l.user_name || '',
+      l.user_sector || '',
+      actionLabel[l.action] || l.action,
+      l.book_title || ''
+    ];
+  });
+
+  const lines = [headers.map(csvEscape).join(';'), ...rows.map(r => r.map(csvEscape).join(';'))];
+  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+
+  const now = new Date();
+  const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}h${String(now.getMinutes()).padStart(2, '0')}`;
+
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `log-biblioteca_${stamp}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+  showMessage(`📥 ${filtered.length} evento${filtered.length === 1 ? '' : 's'} exportado${filtered.length === 1 ? '' : 's'}.`, 'success');
 }
 
 // ==================== INIT ====================
@@ -3398,6 +3891,9 @@ document.getElementById('notifications-modal')?.addEventListener('click', e => {
 document.getElementById('new-notification-modal')?.addEventListener('click', e => { if (e.target.id === 'new-notification-modal') closeNewNotificationForm(); });
 document.getElementById('points-adjust-modal')?.addEventListener('click', e => {
   if (e.target.id === 'points-adjust-modal') closePointsAdjustModal();
+});
+document.getElementById('book-form-modal')?.addEventListener('click', e => {
+  if (e.target.id === 'book-form-modal') closeBookForm();
 });
 
 document.getElementById('prize-form-modal')?.addEventListener('click', e => {
@@ -3422,88 +3918,3 @@ document.getElementById('new-user-modal')?.addEventListener('keydown', e => {
 initTheme();
 
 boot();
-
-
-// ==================== BIBLIOTECA ====================
-// Adicione PDFs e TXTs diretamente em academy/biblioteca/ no GitHub.
-// NÃ£o requer tabela, bucket ou alteraÃ§Ã£o nas permissÃµes do Supabase.
-const LIBRARY_API = 'https://api.github.com/repos/montero01/pdicde/contents/academy/biblioteca';
-let libraryFiles = null;
-let libraryPending = null;
-let libraryQuery = '';
-let libraryType = '';
-
-async function renderLibraryView() {
-  const main = document.getElementById('main-content');
-  main.innerHTML = `<section class="cde-library">
-    <header class="library-heading"><div><h1>ðŸ“– Biblioteca</h1>
-    <p>Materiais de consulta disponÃ­veis para todos os colaboradores.</p></div>
-    <button class="btn-secondary" id="library-refresh">â†» Atualizar</button></header>
-    <div class="library-toolbar">
-      <label>Buscar material<input id="library-query" type="search" placeholder="Nome do arquivoâ€¦" maxlength="150"></label>
-      <label>Formato<select id="library-type"><option value="">Todos</option><option value="pdf">PDF</option><option value="txt">Texto (TXT)</option></select></label>
-    </div>
-    <p id="library-status" role="status" aria-live="polite">Carregando materiaisâ€¦</p>
-    <div id="library-results" class="library-grid"></div>
-  </section>`;
-  document.getElementById('library-query').value = libraryQuery;
-  document.getElementById('library-type').value = libraryType;
-  document.getElementById('library-query').addEventListener('input', event => {
-    libraryQuery = event.target.value; paintLibraryFiles();
-  });
-  document.getElementById('library-type').addEventListener('change', event => {
-    libraryType = event.target.value; paintLibraryFiles();
-  });
-  document.getElementById('library-refresh').addEventListener('click', () => {
-    libraryFiles = null; renderLibraryView();
-  });
-  try {
-    if (libraryFiles === null) {
-      if (!libraryPending) {
-        libraryPending = (async () => {
-          const response = await fetch(LIBRARY_API, {headers: {Accept: 'application/vnd.github+json'}});
-          if (response.status === 404) return [];
-          if (response.status === 403 || response.status === 429) {
-            throw new Error('O limite temporÃ¡rio de consultas foi atingido. Aguarde alguns minutos e clique em Atualizar.');
-          }
-          if (!response.ok) throw new Error('NÃ£o foi possÃ­vel consultar os materiais. Tente atualizar novamente.');
-          const entries = await response.json();
-          if (!Array.isArray(entries)) throw new Error('A pasta da biblioteca nÃ£o pÃ´de ser lida.');
-          if (entries.length >= 1000) throw new Error('A pasta atingiu o limite de listagem. Organize o acervo antes de adicionar novos arquivos.');
-          return entries.filter(file => file.type === 'file' && /\.(pdf|txt)$/i.test(file.name))
-            .map(file => ({name: file.name, size: file.size,
-              type: file.name.split('.').pop().toLowerCase(),
-              url: new URL('biblioteca/' + encodeURIComponent(file.name), document.baseURI).href}))
-            .sort((a,b) => a.name.localeCompare(b.name, 'pt-BR', {numeric: true}));
-        })();
-      }
-      try { libraryFiles = await libraryPending; } finally { libraryPending = null; }
-    }
-    if (currentView === 'library') paintLibraryFiles();
-  } catch (error) {
-    if (currentView !== 'library') return;
-    document.getElementById('library-status').textContent = error.message || 'Falha ao carregar a biblioteca.';
-  }
-}
-
-function paintLibraryFiles() {
-  const status = document.getElementById('library-status');
-  const results = document.getElementById('library-results');
-  if (!status || !results || libraryFiles === null) return;
-  const normalize = text => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
-  const query = normalize(libraryQuery.trim());
-  const files = libraryFiles.filter(file => (!libraryType || file.type === libraryType) && normalize(file.name).includes(query));
-  status.textContent = libraryFiles.length === 0 ? 'Nenhum material publicado ainda.' :
-    files.length === 0 ? 'Nenhum material encontrado para esta busca.' :
-    `${files.length} de ${libraryFiles.length} materiais`;
-  results.innerHTML = files.map(file => {
-    const title = file.name.replace(/\.(pdf|txt)$/i, '').replace(/[_-]+/g, ' ');
-    const size = file.size < 1024 * 1024 ? `${(file.size / 1024).toLocaleString('pt-BR', {maximumFractionDigits: 1})} KB` :
-      `${(file.size / 1024 / 1024).toLocaleString('pt-BR', {maximumFractionDigits: 1})} MB`;
-    return `<article class="library-card"><div class="library-file-icon" aria-hidden="true">${file.type === 'pdf' ? 'ðŸ“„' : 'ðŸ“'}</div>
-      <span class="library-badge">${file.type.toUpperCase()} Â· ${size}</span>
-      <h2>${escapeHtml(title)}</h2><p>${escapeHtml(file.name)}</p>
-      <div class="library-actions"><a class="btn-primary" href="${escapeHtml(file.url)}" target="_blank" rel="noopener noreferrer">Abrir â†—</a>
-      <a class="btn-secondary" href="${escapeHtml(file.url)}" download="${escapeHtml(file.name)}">Baixar â†“</a></div></article>`;
-  }).join('');
-}
