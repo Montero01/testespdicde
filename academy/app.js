@@ -1,0 +1,3509 @@
+// ==================== CONFIG ====================
+const SUPABASE_URL = 'https://whjyvphamkbjcrdzhzoc.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_EyZgqDQTSV-M-O3_l63V7Q_LFcFDl69';
+const PDI_URL = 'https://montero01.github.io/pdicde/';
+const BUCKET = 'academy';
+
+const { createClient } = supabase;
+const db = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    storage: window.localStorage,
+    storageKey: 'cde-auth-session',
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true
+  }
+});
+
+// Client separado usado SOMENTE para criar usuÃ¡rios.
+// NÃ£o persiste sessÃ£o, entÃ£o nÃ£o substitui a sessÃ£o do admin logado.
+const dbSignup = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    storage: window.sessionStorage,
+    storageKey: 'cde-signup-temp',
+    persistSession: false,
+    autoRefreshToken: false,
+    detectSessionInUrl: false
+  }
+});
+
+// ==================== ESTADO ====================
+let currentUser = null;
+let currentProfile = null;
+let currentView = 'home';
+let allCourses = [];
+let myEnrollments = [];
+let completions = [];
+let searchTerm = '';
+let selectedCourse = null;
+let isProfessor = false;
+let canManage = false;
+
+let editingCourseId = null;
+let editingModuleId = null;
+let editingModuleCourseId = null;
+let editingLessonId = null;
+let editingLessonModuleId = null;
+let editingQuizLessonId = null;
+let quizQuestions = [];
+let currentEditorCourseId = null;
+let currentEditorModules = [];
+let editingCourseCoverUrl = null;
+
+let playerCourse = null;
+let playerLessons = [];
+let playerIndex = -1;
+let playerStartedAt = null;
+let playerTickInterval = null;
+
+let certificateData = null;
+let selectedAvatarFile = null;
+let dashboardChartInstance = null;
+
+// ===================== AVATAR DE PERFIL =====================
+function openAvatarModal() {
+  if (!currentUser || !currentProfile) return;
+
+  selectedAvatarFile = null;
+  document.getElementById('avatar-file-input').value = '';
+  document.getElementById('avatar-file-name').textContent = '';
+  document.getElementById('avatar-save-btn').disabled = true;
+
+  const preview = document.getElementById('avatar-preview');
+  if (currentProfile.avatar_url) {
+    preview.style.backgroundImage = `url('${currentProfile.avatar_url}')`;
+    preview.textContent = '';
+  } else {
+    preview.style.backgroundImage = '';
+    preview.textContent = initials(currentProfile.full_name || currentUser.email);
+  }
+
+  document.getElementById('avatar-modal').classList.remove('hidden');
+}
+
+function closeAvatarModal() {
+  document.getElementById('avatar-modal').classList.add('hidden');
+  selectedAvatarFile = null;
+}
+
+function onAvatarFileSelected(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  if (file.size > 5 * 1024 * 1024) {
+    showMessage('Imagem muito grande. MÃ¡ximo 5MB.', 'error');
+    event.target.value = '';
+    return;
+  }
+
+  const validTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/webp'];
+  if (!validTypes.includes(file.type)) {
+    showMessage('Formato invÃ¡lido. Use JPG, PNG ou WEBP.', 'error');
+    event.target.value = '';
+    return;
+  }
+
+  selectedAvatarFile = file;
+  document.getElementById('avatar-file-name').textContent = 'âœ“ ' + file.name;
+  document.getElementById('avatar-save-btn').disabled = false;
+
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const preview = document.getElementById('avatar-preview');
+    preview.style.backgroundImage = `url('${e.target.result}')`;
+    preview.textContent = '';
+  };
+  reader.readAsDataURL(file);
+}
+
+async function saveAvatar() {
+  if (!selectedAvatarFile) return;
+
+  const btn = document.getElementById('avatar-save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Enviandoâ€¦';
+
+  try {
+    const ext = selectedAvatarFile.name.split('.').pop().toLowerCase();
+    const filePath = `${currentUser.id}/avatar.${ext}`;
+
+    const { error: upErr } = await db.storage
+      .from('avatars')
+      .upload(filePath, selectedAvatarFile, {
+        upsert: true,
+        contentType: selectedAvatarFile.type,
+        cacheControl: '3600'
+      });
+
+    if (upErr) throw upErr;
+
+    const { data: pub } = db.storage.from('avatars').getPublicUrl(filePath);
+    const publicUrl = pub.publicUrl + '?t=' + Date.now();
+
+    const { error: dbErr } = await db
+      .from('profiles')
+      .update({ avatar_url: publicUrl })
+      .eq('id', currentUser.id);
+
+    if (dbErr) throw dbErr;
+
+    currentProfile.avatar_url = publicUrl;
+    applyAvatarToUI(currentProfile.full_name || currentUser.email, publicUrl);
+
+    showMessage('Foto atualizada! âœ…', 'success');
+    closeAvatarModal();
+
+  } catch (e) {
+    console.error('Erro ao salvar avatar:', e);
+    showMessage('Erro: ' + (e.message || 'falha no upload'), 'error');
+    btn.disabled = false;
+    btn.textContent = 'Salvar Foto';
+  }
+}
+
+function applyAvatarToUI(name, url) {
+  const sidebarAvatar = document.getElementById('user-avatar');
+  const topbarAvatar = document.getElementById('topbar-avatar');
+  const ini = initials(name);
+
+  [sidebarAvatar, topbarAvatar].forEach(el => {
+    if (!el) return;
+    if (url) {
+      el.style.backgroundImage = `url('${url}')`;
+      el.textContent = '';
+    } else {
+      el.style.backgroundImage = '';
+      el.textContent = ini;
+    }
+  });
+}
+
+// ==================== TEMA (DARK / LIGHT) ====================
+function initTheme() {
+  const saved = localStorage.getItem('cde-academy-theme');
+  if (saved === 'dark') {
+    document.documentElement.setAttribute('data-theme', 'dark');
+  }
+  updateThemeIcon();
+}
+
+function toggleTheme() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  if (isDark) {
+    document.documentElement.removeAttribute('data-theme');
+    localStorage.setItem('cde-academy-theme', 'light');
+  } else {
+    document.documentElement.setAttribute('data-theme', 'dark');
+    localStorage.setItem('cde-academy-theme', 'dark');
+  }
+  updateThemeIcon();
+}
+
+function updateThemeIcon() {
+  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+  const icon = document.getElementById('theme-icon');
+  const btn = document.getElementById('theme-toggle');
+  if (icon) icon.textContent = isDark ? 'â˜€ï¸' : 'ðŸŒ™';
+  if (btn) btn.title = isDark ? 'Ativar tema claro' : 'Ativar tema escuro';
+}
+
+// ==================== HELPERS ====================
+function showMessage(text, type = 'success') {
+  const box = document.getElementById('message-box');
+  const div = document.createElement('div');
+  div.className = `msg ${type}`;
+  div.textContent = text;
+  box.appendChild(div);
+  setTimeout(() => div.remove(), 4500);
+}
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function initials(name) {
+  if (!name) return 'CD';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+function roleLabel(role) {
+  const r = (role || '').toLowerCase();
+  if (r === 'supervisor') return 'Supervisor';
+  if (r.includes('diretor') || r.includes('director') || r === 'diretoria') return 'Diretoria';
+  if (r === 'master') return 'Master';
+  return 'Colaborador';
+}
+function goToPDI() { window.location.href = PDI_URL; }
+
+/**
+ * Converte qualquer URL de vÃ­deo (YouTube, Vimeo, Google Drive) para o formato de embed.
+ */
+function getVideoEmbedUrl(url) {
+  if (!url) return null;
+  url = url.trim();
+  const ytMatch = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  if (ytMatch) return `https://www.youtube.com/embed/${ytMatch[1]}?rel=0&modestbranding=1`;
+  const vimeoMatch = url.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+  if (vimeoMatch) return `https://player.vimeo.com/video/${vimeoMatch[1]}`;
+  const driveMatch = url.match(/drive\.google\.com\/(?:file\/d\/|open\?id=)([a-zA-Z0-9_-]+)/);
+  if (driveMatch) return `https://drive.google.com/file/d/${driveMatch[1]}/preview`;
+  if (url.includes('/embed/') || url.includes('/preview') || url.includes('player.vimeo.com')) return url;
+  return null;
+}
+
+// ==================== NAVEGAÃ‡ÃƒO ====================
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebar-overlay').classList.toggle('open');
+}
+function switchView(view) {
+  currentView = view;
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebar-overlay').classList.remove('open');
+  window.scrollTo(0, 0);
+  renderView(view);
+}
+function renderView(view) {
+  const main = document.getElementById('main-content');
+  switch (view) {
+    case 'home':         main.innerHTML = renderHome(); break;
+    case 'empresa':      main.innerHTML = renderEmpresa(); break;
+    case 'library':      renderLibraryView(); break;
+    case 'mycourses':    main.innerHTML = renderMyCourses(); break;
+    case 'catalog':      main.innerHTML = renderCatalog(); break;
+    case 'certificates': main.innerHTML = renderCertificates(); break;
+    case 'report':       main.innerHTML = renderReport(); break;
+    case 'manage':       main.innerHTML = renderManageCourses(); break;
+    case 'analytics':    renderAnalyticsView(); break;
+    case 'dashboard':    renderDashboard(); break;
+    case 'points':       renderPointsManagement(); break;
+    case 'prizes':       renderPrizesView(); break;
+    default:             main.innerHTML = renderHome();
+  }
+}
+function onSearchInput() {
+  searchTerm = (document.getElementById('global-search').value || '').toLowerCase().trim();
+  if (['home', 'catalog', 'mycourses'].includes(currentView)) renderView(currentView);
+}
+
+// ==================== AUTH ====================
+async function boot() {
+  const { data: { session }, error } = await db.auth.getSession();
+  if (error || !session) {
+    document.getElementById('splash').classList.add('hidden');
+    document.getElementById('redirect-view').classList.remove('hidden');
+    setTimeout(() => { window.location.href = PDI_URL; }, 5000);
+    return;
+  }
+  currentUser = session.user;
+  await loadUser();
+}
+async function loadUser() {
+  const { data: profile, error } = await db.from('profiles').select('*').eq('id', currentUser.id).single();
+  if (error || !profile) {
+    showMessage('Perfil nÃ£o encontrado. Redirecionandoâ€¦', 'error');
+    setTimeout(() => { window.location.href = PDI_URL; }, 2500);
+    return;
+  }
+  currentProfile = profile;
+
+  const roleLower = (profile.role || '').toLowerCase();
+  const isMaster = profile.is_master === true || roleLower === 'master';
+  const isDiretor = roleLower.includes('diretor') || roleLower.includes('director') || roleLower === 'diretoria';
+  isProfessor = profile.is_professor === true;
+  canManage = isProfessor || isMaster || isDiretor;
+
+  document.getElementById('splash').classList.add('hidden');
+  document.getElementById('app-view').classList.remove('hidden');
+
+  const name = profile.full_name || currentUser.email;
+  const ini = initials(name);
+  document.getElementById('user-avatar').textContent = ini;
+  document.getElementById('topbar-avatar').textContent = ini;
+  document.getElementById('user-name').textContent = name;
+  const posEl = document.getElementById('user-position');
+  if (posEl) posEl.textContent = profile.position || '';
+
+  applyAvatarToUI(name, profile.avatar_url || null);
+  document.getElementById('user-role').textContent = isProfessor ? 'Professor Master' : roleLabel(profile.role);
+
+  const sectorEl = document.getElementById('user-sector');
+  if (profile.sector) { sectorEl.textContent = profile.sector; sectorEl.classList.remove('hidden'); }
+
+    if (canManage) {
+    document.getElementById('nav-manage').classList.remove('hidden');
+    document.getElementById('nav-analytics').classList.remove('hidden');
+    document.getElementById('nav-points').classList.remove('hidden');
+    document.getElementById('add-user-btn').classList.remove('hidden');
+  }
+
+  if (isMaster) {
+    document.getElementById('nu-master-wrap').classList.remove('hidden');
+  }
+  // Dashboard executivo â€” VERAQUI somente Diretoria/Master
+  if (isMaster || isDiretor) {
+    const navDash = document.getElementById('nav-dashboard');
+    if (navDash) navDash.classList.remove('hidden');
+  }
+
+  await loadTopbarPoints();
+  await loadCourses();
+  await loadMyEnrollments();
+  await loadCompletions();
+  await loadNotifications();
+
+  renderView('home');
+}
+async function logout() {
+  if (!confirm('Sair da CDE Academy? VocÃª serÃ¡ redirecionado para o PDI.')) return;
+  await db.auth.signOut();
+  window.location.href = PDI_URL;
+}
+
+// ==================== DATA LOADING ====================
+async function loadTopbarPoints() {
+  try {
+    const [pdiRes, acadRes, adjRes, redRes] = await Promise.all([
+      db.from('certificates').select('points_awarded').eq('user_id', currentUser.id).eq('status', 'approved'),
+      db.from('academy_completions').select('points_awarded').eq('user_id', currentUser.id),
+      db.from('academy_points_adjustments').select('points').eq('user_id', currentUser.id),
+      db.from('academy_redemptions').select('points_spent').eq('user_id', currentUser.id).neq('status', 'cancelled')
+    ]);
+    const pdi     = (pdiRes.data || []).reduce((s, c) => s + (c.points_awarded || 0), 0);
+    const acad    = (acadRes.data || []).reduce((s, c) => s + (c.points_awarded || 0), 0);
+    const adj     = (adjRes.data || []).reduce((s, c) => s + (c.points || 0), 0);
+    const gastos  = (redRes.data || []).reduce((s, c) => s + (c.points_spent || 0), 0);
+
+    const total = pdi + acad + adj - gastos;
+    document.getElementById('topbar-points').textContent = `${total} pts`;
+    document.getElementById('topbar-points').title =
+      `PDI: ${pdi} Â· Academy: ${acad} Â· Ajustes: ${adj} Â· Resgates: -${gastos}`;
+  } catch (e) {
+    document.getElementById('topbar-points').textContent = '0 pts';
+  }
+}
+
+/**
+ * Retorna o saldo detalhado de qualquer usuÃ¡rio.
+ * { disponivel, ganhoTotal, gasto, pdi, academy, ajustes, resgates }
+ */
+async function getUserPointsBalance(userId) {
+  const [pdiRes, acadRes, adjRes, redRes] = await Promise.all([
+    db.from('certificates').select('points_awarded').eq('user_id', userId).eq('status', 'approved'),
+    db.from('academy_completions').select('points_awarded').eq('user_id', userId),
+    db.from('academy_points_adjustments').select('points').eq('user_id', userId),
+    db.from('academy_redemptions').select('points_spent').eq('user_id', userId).neq('status', 'cancelled')
+  ]);
+  const pdi    = (pdiRes.data || []).reduce((s, c) => s + (c.points_awarded || 0), 0);
+  const acad   = (acadRes.data || []).reduce((s, c) => s + (c.points_awarded || 0), 0);
+  const ajustes = (adjRes.data || []).reduce((s, c) => s + (c.points || 0), 0);
+  const gasto  = (redRes.data || []).reduce((s, c) => s + (c.points_spent || 0), 0);
+  const ganhoTotal = pdi + acad + ajustes;
+  return { pdi, academy: acad, ajustes, resgates: gasto, ganhoTotal, disponivel: ganhoTotal - gasto };
+}
+
+async function loadCourses() {
+  try {
+    const { data, error } = await db.from('academy_courses').select('*').order('created_at', { ascending: false });
+    if (error) throw error;
+    allCourses = data || [];
+  } catch (e) { allCourses = []; }
+}
+async function loadMyEnrollments() {
+  try {
+    const { data, error } = await db.from('academy_enrollments').select('*, academy_courses(*)').eq('user_id', currentUser.id);
+    if (error) throw error;
+    const enrolls = data || [];
+    myEnrollments = await Promise.all(enrolls.map(async (e) => {
+      const course = e.academy_courses;
+      if (!course) return null;
+      const progress = await calcCourseProgress(currentUser.id, course.id);
+      return { course, progress, status: e.status };
+    }));
+    myEnrollments = myEnrollments.filter(Boolean);
+  } catch (e) { myEnrollments = []; }
+}
+async function loadCompletions() {
+  try {
+    const { data, error } = await db.from('academy_completions').select('*, academy_courses(title)').eq('user_id', currentUser.id).order('completed_at', { ascending: false });
+    if (error) throw error;
+    completions = data || [];
+  } catch (e) { completions = []; }
+}
+async function calcCourseProgress(userId, courseId) {
+  try {
+    const { data: mods } = await db.from('academy_modules').select('id').eq('course_id', courseId);
+    const modIds = (mods || []).map(m => m.id);
+    if (modIds.length === 0) return { done: 0, total: 0, pct: 0 };
+    const { data: lessons } = await db.from('academy_lessons').select('id').in('module_id', modIds);
+    const lessonIds = (lessons || []).map(l => l.id);
+    const total = lessonIds.length;
+    if (total === 0) return { done: 0, total: 0, pct: 0 };
+    const { data: done } = await db.from('academy_progress').select('lesson_id').eq('user_id', userId).in('lesson_id', lessonIds);
+    const doneCount = (done || []).length;
+    return { done: doneCount, total, pct: Math.round((doneCount / total) * 100) };
+  } catch (e) { return { done: 0, total: 0, pct: 0 }; }
+}
+
+// ==================== VIEWS DO ALUNO ====================
+function renderHome() {
+  const enrolled = filterCourses(myEnrollments);
+  const heroCourse = allCourses[0] || { title: 'Bem-vindo Ã  CDE Academy', description: 'Explore os cursos e desenvolva suas habilidades.' };
+  return `
+    <section class="hero-banner">
+      <div class="hero-content">
+        <span class="hero-tag">âœ¨ Destaque</span>
+        <h1>${escapeHtml(heroCourse.title)}</h1>
+        <p>${escapeHtml(heroCourse.description)}</p>
+        <button class="hero-btn" onclick="switchView('catalog')">Explorar cursos â†’</button>
+      </div>
+    </section>
+    <div class="section-header">
+      <h2>Cursos para vocÃª fazer</h2>
+      <span class="section-sub">Treinamentos liberados para vocÃª</span>
+    </div>
+    ${enrolled.length === 0 ? renderEmpty('ðŸ“­', 'Nenhum curso liberado ainda. Aguarde seu supervisor.') : `<div class="courses-grid">${enrolled.map(renderCourseCard).join('')}</div>`}
+    ${allCourses.length > 0 && enrolled.length < allCourses.length ? `
+      <div class="section-header">
+        <h2>CatÃ¡logo completo</h2>
+        <span class="section-sub">${allCourses.length} curso${allCourses.length === 1 ? '' : 's'}</span>
+      </div>
+      <div class="courses-grid">${allCourses.filter(c => !myEnrollments.some(e => e.course.id === c.id)).slice(0, 6).map(c => renderCatalogCard(c)).join('')}</div>
+    ` : ''}
+  `;
+}
+function renderMyCourses() {
+  const enrolled = filterCourses(myEnrollments);
+  if (enrolled.length === 0) return `<div class="section-header"><h2>Meus Cursos</h2></div>${renderEmpty('ðŸ“š', 'VocÃª ainda nÃ£o estÃ¡ matriculado em nenhum curso.')}`;
+  return `<div class="section-header"><h2>Meus Cursos</h2><span class="section-sub">${enrolled.length} curso${enrolled.length === 1 ? '' : 's'}</span></div><div class="courses-grid">${enrolled.map(renderCourseCard).join('')}</div>`;
+}
+function renderCatalog() {
+  let courses = allCourses.filter(c => c.is_published !== false);
+  if (searchTerm) courses = courses.filter(c => (c.title || '').toLowerCase().includes(searchTerm) || (c.description || '').toLowerCase().includes(searchTerm));
+  if (courses.length === 0) return `<div class="section-header"><h2>CatÃ¡logo de Cursos</h2></div>${renderEmpty('ðŸ”', searchTerm ? 'Nenhum curso encontrado.' : 'Nenhum curso publicado ainda.')}`;
+  return `<div class="section-header"><h2>CatÃ¡logo de Cursos</h2><span class="section-sub">${courses.length} disponÃ­ve${courses.length === 1 ? 'l' : 'is'}</span></div><div class="courses-grid">${courses.map(c => renderCatalogCard(c)).join('')}</div>`;
+}
+function renderCertificates() {
+  if (completions.length === 0) return `<div class="section-header"><h2>Certificados</h2></div>${renderEmpty('ðŸŽ“', 'VocÃª ainda nÃ£o concluiu nenhum curso.')}`;
+  return `<div class="section-header"><h2>Certificados</h2><span class="section-sub">${completions.length} conquistado${completions.length === 1 ? '' : 's'}</span></div>
+    <div class="courses-grid">${completions.map(c => `
+      <div class="course-card" style="cursor:default;">
+        <div class="course-cover" style="background: linear-gradient(135deg, #158A49 0%, #0E6B39 100%);">ðŸŽ“<span class="course-badge concluido">ConcluÃ­do</span></div>
+        <div class="course-body">
+          <h3>${escapeHtml(c.academy_courses?.title || 'Curso')}</h3>
+          <p>Emitido em ${new Date(c.completed_at).toLocaleDateString('pt-BR')}.</p>
+          <div class="course-meta"><span class="tag">ðŸ”‘ ${escapeHtml(c.certificate_code || 'â€”')}</span></div>
+          <button class="btn-success" style="margin-top: 12px; padding: 10px;" onclick="openCertificateModal('${c.course_id}')">ðŸ“¥ Baixar Certificado</button>
+        </div>
+      </div>
+    `).join('')}</div>`;
+}
+function renderReport() {
+  const totalEnrolled = myEnrollments.length;
+  const completed = myEnrollments.filter(e => e.progress.pct >= 100).length;
+  const inProgress = myEnrollments.filter(e => e.progress.pct > 0 && e.progress.pct < 100).length;
+  const completionRate = totalEnrolled > 0 ? Math.round((completed / totalEnrolled) * 100) : 0;
+  const statCard = (label, value, color, emoji) => `
+    <div class="stat-card">
+      <div class="stat-icon">${emoji}</div>
+      <div class="stat-value" style="color: ${color};">${value}</div>
+      <div class="stat-label">${label}</div>
+    </div>`;
+  return `
+    <div class="section-header"><h2>Meu Desempenho</h2></div>
+    <div class="stats-grid">
+      ${statCard('Cursos matriculados', totalEnrolled, 'var(--roxo-medio)', 'ðŸ“š')}
+      ${statCard('ConcluÃ­dos', completed, 'var(--verde)', 'âœ…')}
+      ${statCard('Em andamento', inProgress, 'var(--cde-laranja)', 'â³')}
+      ${statCard('Taxa de conclusÃ£o', completionRate + '%', 'var(--cde-vermelho)', 'ðŸ“ˆ')}
+    </div>
+    <div style="background: var(--branco); border-radius:14px; padding:22px; border:1px solid var(--cinza-borda);">
+      <h3 style="font-size: 1rem; margin-bottom: 14px;">ðŸ“Š Progresso por curso</h3>
+      ${totalEnrolled === 0 ? '<p style="color: var(--texto-soft);">Sem cursos.</p>' :
+        myEnrollments.map(e => `
+          <div style="padding: 12px 0; border-bottom: 1px solid var(--cinza-borda); display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 200px;">
+              <div style="font-weight: 700; font-size: 0.9rem;">${escapeHtml(e.course.title)}</div>
+              <div style="font-size: 0.78rem; color: var(--texto-soft); margin-top: 3px;">${e.progress.done} de ${e.progress.total} aulas</div>
+            </div>
+            <div style="font-weight: 800; color: ${e.progress.pct >= 100 ? 'var(--verde)' : 'var(--cde-laranja-escuro)'};">${e.progress.pct}%</div>
+          </div>`).join('')}
+    </div>`;
+}
+
+// ==================== NOSSA EMPRESA ====================
+function renderEmpresa() {
+  const IMG_1 = 'https://casadosespelhos.com.br/wp-content/uploads/2020/03/WhatsApp-Image-2025-09-03-at-20.22.26.jpeg';
+  const IMG_2 = 'https://casadosespelhos.com.br/wp-content/uploads/2020/03/WhatsApp-Image-2025-09-03-at-20.22.25.jpeg';
+
+  return `
+    <section class="hero-banner" style="min-height:200px;">
+      <div class="hero-content">
+        <span class="hero-tag">ðŸ¢ Sobre nÃ³s</span>
+        <h1>Nossa Empresa</h1>
+        <p>ConheÃ§a um pouco da histÃ³ria, dos valores e da trajetÃ³ria da CDE Blindex, a Ãºnica BLINDEXÂ® da RegiÃ£o Norte!</p>
+      </div>
+    </section>
+
+    <div class="section-header">
+      <h2>Nossa HistÃ³ria</h2>
+      <span class="section-sub">ConheÃ§a nossa diretora Kilze Krauss</span>
+    </div>
+
+    <div style="background: var(--branco); border-radius:14px; padding:26px; border:1px solid var(--cinza-borda); box-shadow: var(--sombra-sm); margin-bottom:26px;">
+      <p style="font-size:0.95rem; color:var(--texto-soft); line-height:1.75; margin-bottom:16px;">
+        Sua trajetÃ³ria se confunde com a prÃ³pria histÃ³ria da CDE BlindexÂ®, que completa quase 50 anos de mercado e se consolidou como referÃªncia em soluÃ§Ãµes de vidros modernos para a regiÃ£o.
+      </p>
+      <p style="font-size:0.95rem; color:var(--texto-soft); line-height:1.75; margin-bottom:16px;">
+        Kilze ocupa um lugar singular: Ã© a Ãºnica mulher no comando de uma linha de tÃªmpera de vidros no estado do Amazonas, o que a torna nÃ£o apenas uma gestora de destaque, mas tambÃ©m uma referÃªncia para outras mulheres que sonham em ocupar espaÃ§os de lideranÃ§a em setores tradicionalmente masculinos. Sua atuaÃ§Ã£o firme, visionÃ¡ria e inspiradora mostra que competÃªncia e sensibilidade podem caminhar juntas na construÃ§Ã£o de resultados sÃ³lidos.
+      </p>
+      <p style="font-size:0.95rem; color:var(--texto-soft); line-height:1.75;">
+        Durante seus mais de 10 anos de lideranÃ§a, Kilze Krauss foi responsÃ¡vel por transformar a CDE BlindexÂ® em um verdadeiro polo de excelÃªncia. Uma de suas principais conquistas foi a associaÃ§Ã£o da empresa Ã  marca BlindexÂ®, lÃ­der mundial em soluÃ§Ãµes em vidros de seguranÃ§a e design, o que elevou ainda mais o padrÃ£o de qualidade e credibilidade da companhia perante clientes e parceiros. AlÃ©m disso, investiu fortemente em marketing, comunicaÃ§Ã£o e educaÃ§Ã£o do mercado, posicionando a CDE BlindexÂ® como uma empresa prÃ³xima, transparente e comprometida com a inovaÃ§Ã£o.
+      </p>
+    </div>
+
+    <div class="section-header">
+      <h2>Nossa TrajetÃ³ria em Imagens</h2>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:18px; margin-bottom:26px;">
+      <figure style="background: var(--branco); border-radius:14px; overflow:hidden; border:1px solid var(--cinza-borda); box-shadow:var(--sombra-sm);">
+        <img src="${IMG_1}" alt="Marca CDE" style="width:100%; height:240px; object-fit:cover; display:block; background: var(--branco);">
+        <figcaption style="padding:14px 16px; font-size:0.85rem; color:var(--texto-soft); font-weight:600;">
+          Ã€ frente da CDE BlindexÂ® hÃ¡ mais de uma dÃ©cada, Kilze Krauss tem conduzido a empresa por um caminho de inovaÃ§Ã£o, qualidade e lideranÃ§a no setor de vidros no Amazonas.
+        </figcaption>
+      </figure>
+
+      <figure style="background: var(--branco); border-radius:14px; overflow:hidden; border:1px solid var(--cinza-borda); box-shadow:var(--sombra-sm);">
+        <img src="${IMG_2}" alt="Nossa equipe" style="width:100%; height:240px; object-fit:cover; display:block;">
+        <figcaption style="padding:14px 16px; font-size:0.85rem; color:var(--texto-soft); font-weight:600;">
+          Kilze acredita que o maior patrimÃ´nio da CDE BlindexÂ® sÃ£o as pessoas. Por isso, dedica atenÃ§Ã£o especial Ã  valorizaÃ§Ã£o da equipe, investindo em treinamentos, integraÃ§Ã£o e no desenvolvimento contÃ­nuo de seus colaboradores. Para ela, qualidade comeÃ§a dentro de casa, com profissionais motivados, engajados e orgulhosos de fazer parte da histÃ³ria da empresa. Essa visÃ£o humanizada Ã© um dos diferenciais de sua gestÃ£o e uma das razÃµes pelas quais a CDE BlindexÂ® mantÃ©m uma posiÃ§Ã£o de destaque no mercado.
+        </figcaption>
+      </figure>
+    </div>
+
+    <div class="section-header">
+      <h2>A Casa dos Espelhos</h2>
+    </div>
+
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:14px;">
+      ${renderValoresCards()}
+    </div>
+  `;
+}
+
+function renderValoresCards() {
+  const valores = [
+    { emoji: 'ðŸ¤', titulo: 'MissÃ£o',      desc: 'Fabricar vidros BLINDEXÂ® com qualidade, proporcionando seguranÃ§a Ã s pessoas.' },
+    { emoji: 'ðŸŽ¯', titulo: 'VisÃ£o',       desc: 'Ser referÃªncia em vidros de qualidade no AMAZONAS' },
+    { emoji: 'ðŸŒ±', titulo: 'Valores',     desc: 'ExcelÃªncia e Qualidade | Respeito aos clientes, parceiros e colaboradores | Integridade | SeguranÃ§a.' }
+  ];
+  let html = '';
+  for (const v of valores) {
+    html += '<div style="background: var(--branco); border-radius:14px; padding:20px; border:1px solid var(--cinza-borda); box-shadow:var(--sombra-sm);">';
+    html += '<div style="font-size:1.8rem; margin-bottom:8px;">' + v.emoji + '</div>';
+    html += '<div style="font-weight:800; font-size:0.95rem; margin-bottom:6px;">' + v.titulo + '</div>';
+    html += '<div style="font-size:0.82rem; color:var(--texto-soft); line-height:1.5;">' + v.desc + '</div>';
+    html += '</div>';
+  }
+  return html;
+}
+
+// ==================== HELPERS DE RENDER ====================
+function renderEmpty(emoji, msg) { return `<div class="state-box"><span class="emoji">${emoji}</span>${escapeHtml(msg)}</div>`; }
+function filterCourses(list) {
+  if (!searchTerm) return list;
+  return list.filter(e => (e.course.title || '').toLowerCase().includes(searchTerm) || (e.course.description || '').toLowerCase().includes(searchTerm));
+}
+function renderCourseCard(enrollment) {
+  const c = enrollment.course; const p = enrollment.progress;
+  let badgeClass = 'novo', badgeText = 'Novo';
+  if (p.pct >= 100) { badgeClass = 'concluido'; badgeText = 'ConcluÃ­do'; }
+  else if (p.pct > 0) { badgeClass = 'progresso'; badgeText = p.pct + '%'; }
+  const coverStyle = c.cover_url ? `background-image: url('${escapeHtml(c.cover_url)}'); background-size: cover; background-position: center;` : '';
+  const coverContent = c.cover_url ? '' : 'ðŸ“˜';
+  return `
+    <div class="course-card" onclick="openCourseModal('${c.id}')">
+      <div class="course-cover" style="${coverStyle}"><span class="course-badge ${badgeClass}">${badgeText}</span>${coverContent}</div>
+      <div class="course-body">
+        <h3>${escapeHtml(c.title)}</h3>
+        <p>${escapeHtml(c.description || 'Sem descriÃ§Ã£o.')}</p>
+        <div class="course-meta">
+          <span class="tag">â± ${c.workload_hours || 1}h</span>
+          ${c.sector ? `<span class="tag">ðŸ· ${escapeHtml(c.sector)}</span>` : ''}
+        </div>
+        <div class="course-progress"><div class="course-progress-fill" style="width:${p.pct}%"></div></div>
+      </div>
+    </div>`;
+}
+function renderCatalogCard(course) {
+  const coverStyle = course.cover_url ? `background-image: url('${escapeHtml(course.cover_url)}'); background-size: cover; background-position: center;` : '';
+  const coverContent = course.cover_url ? '' : 'ðŸ“˜';
+  return `
+    <div class="course-card" onclick="openCourseModal('${course.id}')">
+      <div class="course-cover" style="${coverStyle}"><span class="course-badge">CatÃ¡logo</span>${coverContent}</div>
+      <div class="course-body">
+        <h3>${escapeHtml(course.title)}</h3>
+        <p>${escapeHtml(course.description || 'Sem descriÃ§Ã£o.')}</p>
+        <div class="course-meta">
+          <span class="tag">â± ${course.workload_hours || 1}h</span>
+          ${course.sector ? `<span class="tag">ðŸ· ${escapeHtml(course.sector)}</span>` : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
+// ==================== MODAL DE CURSO ====================
+async function openCourseModal(courseId) {
+  let course = null;
+  const enrollment = myEnrollments.find(e => e.course.id === courseId);
+  if (enrollment) course = enrollment.course;
+  else course = allCourses.find(c => c.id === courseId);
+  if (!course) return showMessage('Curso nÃ£o encontrado.', 'error');
+  selectedCourse = { course, enrollment };
+
+  document.getElementById('cm-title').textContent = course.title;
+  document.getElementById('cm-subtitle').textContent = `${course.workload_hours || 1}h${course.sector ? ' â€¢ ' + course.sector : ''}`;
+
+  let modules = [];
+  try {
+    const { data: mods } = await db.from('academy_modules').select('*').eq('course_id', course.id).order('order_index');
+    modules = mods || [];
+  } catch (e) { /* silent */ }
+
+  const body = document.getElementById('cm-body');
+  if (modules.length === 0) {
+    body.innerHTML = `<p style="color: var(--texto-soft); font-size: 0.9rem;">${escapeHtml(course.description || 'ConteÃºdo em preparaÃ§Ã£o.')}</p>`;
+  } else {
+    let html = `<p style="color: var(--texto-soft); font-size: 0.9rem; margin-bottom: 16px;">${escapeHtml(course.description || '')}</p>`;
+    if (enrollment) {
+      const { data: prog } = await db.from('academy_progress').select('lesson_id').eq('user_id', currentUser.id);
+      const doneSet = new Set((prog || []).map(p => p.lesson_id));
+      html += `<div style="font-size: 0.8rem; font-weight: 700; color: var(--texto-soft); text-transform: uppercase; margin-bottom: 10px;">ConteÃºdo do curso</div>`;
+      for (const m of modules) {
+        html += `<div style="font-weight: 700; font-size: 0.85rem; margin: 14px 0 8px;">ðŸ“¦ ${escapeHtml(m.title)}</div>`;
+        const { data: lessons } = await db.from('academy_lessons').select('*').eq('module_id', m.id).order('order_index');
+        (lessons || []).forEach(l => {
+          const done = doneSet.has(l.id);
+          const icons = { pdf: 'ðŸ“„', video: 'ðŸŽ¬', slides: 'ðŸ“Š', image: 'ðŸ–¼ï¸', text: 'ðŸ“' };
+          html += `
+            <div style="padding: 10px 12px; background: ${done ? 'var(--verde-bg)' : 'var(--cinza-bg)'}; border-radius: 10px; margin-bottom: 6px; display: flex; justify-content: space-between; align-items: center; gap: 10px; cursor: pointer;" onclick="closeCourseModal(); openLessonPlayer('${course.id}','${l.id}')">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <span style="font-size: 1.1rem;">${done ? 'âœ…' : (icons[l.content_type] || 'ðŸ“„')}</span>
+                <div>
+                  <div style="font-weight: 600; font-size: 0.88rem;">${escapeHtml(l.title)}</div>
+                  ${l.has_quiz ? '<div style="font-size: 0.7rem; color: var(--cde-laranja-escuro); font-weight: 700;">ðŸ“ COM QUIZ</div>' : ''}
+                </div>
+              </div>
+              <span style="color: var(--cde-laranja-escuro); font-weight: 700; font-size: 0.85rem;">${done ? 'Rever' : 'Abrir'} â†’</span>
+            </div>`;
+        });
+      }
+    } else {
+      html += modules.map((m, i) => `<div style="padding: 10px 12px; background: var(--cinza-bg); border-radius: 10px; margin-bottom: 8px; display: flex; gap: 10px; align-items: center;"><span style="font-weight: 800; color: var(--cde-laranja);">M${i + 1}</span><span style="font-weight: 600; font-size: 0.88rem;">${escapeHtml(m.title)}</span></div>`).join('');
+    }
+    body.innerHTML = html;
+  }
+
+  const btn = document.getElementById('cm-action');
+  if (enrollment) {
+    btn.textContent = 'Ver primeira aula â†’';
+    btn.onclick = async () => {
+      closeCourseModal();
+      const allLessons = await getAllLessonsOfCourse(course.id);
+      const { data: prog } = await db.from('academy_progress').select('lesson_id').eq('user_id', currentUser.id);
+      const doneSet = new Set((prog || []).map(p => p.lesson_id));
+      const next = allLessons.find(l => !doneSet.has(l.id)) || allLessons[0];
+      if (next) openLessonPlayer(course.id, next.id);
+    };
+  } else {
+    btn.textContent = 'Ver detalhes â†’';
+    btn.onclick = () => showMessage('PeÃ§a ao seu supervisor para matricular vocÃª neste curso.', 'info');
+  }
+  document.getElementById('course-modal').classList.remove('hidden');
+}
+function closeCourseModal() { document.getElementById('course-modal').classList.add('hidden'); selectedCourse = null; }
+
+async function getAllLessonsOfCourse(courseId) {
+  const { data: mods } = await db.from('academy_modules').select('id').eq('course_id', courseId).order('order_index');
+  const modIds = (mods || []).map(m => m.id);
+  if (modIds.length === 0) return [];
+  const { data: lessons } = await db.from('academy_lessons').select('*').in('module_id', modIds).order('order_index');
+  const orderMap = {};
+  (mods || []).forEach((m, i) => orderMap[m.id] = i);
+  return (lessons || []).sort((a, b) => {
+    if (orderMap[a.module_id] !== orderMap[b.module_id]) return orderMap[a.module_id] - orderMap[b.module_id];
+    return (a.order_index || 0) - (b.order_index || 0);
+  });
+}
+
+// ==================== PLAYER DE AULA ====================
+async function openLessonPlayer(courseId, lessonId) {
+  const course = allCourses.find(c => c.id === courseId) || (myEnrollments.find(e => e.course.id === courseId)?.course);
+  if (!course) return showMessage('Curso nÃ£o encontrado.', 'error');
+  playerCourse = course;
+  playerLessons = await getAllLessonsOfCourse(courseId);
+  playerIndex = playerLessons.findIndex(l => l.id === lessonId);
+  if (playerIndex < 0) playerIndex = 0;
+  document.getElementById('lesson-player').classList.remove('hidden');
+  await renderLessonInPlayer();
+}
+
+async function renderLessonInPlayer() {
+  const lesson = playerLessons[playerIndex];
+  if (!lesson) return;
+
+  document.getElementById('player-lesson-title').textContent = lesson.title;
+  document.getElementById('player-course-title').textContent = playerCourse.title;
+  const typeLabel = { pdf: 'PDF', video: 'VÃ­deo', slides: 'Slides', image: 'Imagem', text: 'Texto' }[lesson.content_type] || 'Aula';
+  document.getElementById('player-lesson-badge').textContent = typeLabel;
+
+  const pct = playerLessons.length > 0 ? Math.round(((playerIndex + 1) / playerLessons.length) * 100) : 0;
+  document.getElementById('player-progress-fill').style.width = pct + '%';
+
+  document.getElementById('btn-prev-lesson').disabled = (playerIndex <= 0);
+  document.getElementById('btn-next-lesson').disabled = (playerIndex >= playerLessons.length - 1);
+
+  const { data: existing } = await db.from('academy_progress').select('*').eq('user_id', currentUser.id).eq('lesson_id', lesson.id).maybeSingle();
+  const btnComplete = document.getElementById('btn-complete-lesson');
+  if (existing) {
+    btnComplete.textContent = 'âœ… Aula concluÃ­da';
+    btnComplete.classList.add('done');
+    btnComplete.disabled = true;
+  } else {
+    btnComplete.textContent = 'âœ“ Marcar como concluÃ­da';
+    btnComplete.classList.remove('done');
+    btnComplete.disabled = false;
+  }
+
+  playerStartedAt = Date.now();
+  await upsertLessonView(lesson.id, false);
+
+  if (playerTickInterval) clearInterval(playerTickInterval);
+  playerTickInterval = setInterval(async () => {
+    const elapsed = Math.floor((Date.now() - playerStartedAt) / 1000);
+    await upsertLessonView(lesson.id, false, elapsed);
+  }, 15000);
+
+  const body = document.getElementById('player-body');
+  const type = lesson.content_type || 'text';
+  let contentHtml = '';
+
+  if (type === 'video' && lesson.content_url) {
+    const embedUrl = getVideoEmbedUrl(lesson.content_url);
+    contentHtml = `
+      <div class="content-viewer" style="background: #000; padding: 0;">
+        <div style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; border-radius: 8px;">
+          <iframe src="${escapeHtml(embedUrl)}"
+                  style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowfullscreen></iframe>
+        </div>
+      </div>
+    `;
+  } else if (type === 'pdf' && lesson.content_url) {
+    contentHtml = `<div class="content-viewer"><iframe class="pdf-frame" src="${escapeHtml(lesson.content_url)}"></iframe></div>`;
+  } else if (type === 'slides' && lesson.content_url) {
+    contentHtml = `<div class="content-viewer"><iframe class="slides-frame" src="${escapeHtml(lesson.content_url)}" allowfullscreen></iframe></div>`;
+  } else if (type === 'image' && lesson.content_url) {
+    contentHtml = `<div class="content-viewer"><img src="${escapeHtml(lesson.content_url)}" alt="${escapeHtml(lesson.title)}"></div>`;
+  } else {
+    contentHtml = `<div class="content-viewer"><div class="text-content">${lesson.content_text || '<p>Sem conteÃºdo.</p>'}</div></div>`;
+  }
+
+  let quizHtml = '';
+  if (lesson.has_quiz) {
+    const { data: questions } = await db.from('academy_quizzes').select('*').eq('lesson_id', lesson.id).order('order_index');
+    if (questions && questions.length > 0) {
+      const qParts = [];
+      for (const q of questions) {
+        const { data: opts } = await db.from('academy_quiz_options').select('*').eq('quiz_id', q.id).order('order_index');
+        const optHtml = (opts || []).map(o => `
+          <label class="player-quiz-option" data-quiz="${q.id}" data-opt="${o.id}">
+            <input type="radio" name="pq-${q.id}" value="${o.id}">
+            <span>${escapeHtml(o.option_text)}</span>
+          </label>
+        `).join('');
+        qParts.push(`
+          <div class="player-quiz-question">
+            <div class="q-text">${escapeHtml(q.question)}</div>
+            ${optHtml}
+          </div>
+        `);
+      }
+      quizHtml = `
+        <div class="quiz-block">
+          <h3>ðŸ“ Quiz de FixaÃ§Ã£o</h3>
+          <div class="quiz-sub">Responda todas as perguntas. A nota mÃ­nima Ã© 70%.</div>
+          ${qParts.join('')}
+          <button class="btn-primary" style="margin-top: 12px; width: 100%; padding: 12px;" onclick="submitPlayerQuiz()">Enviar Respostas</button>
+          <div id="player-quiz-result"></div>
+        </div>
+      `;
+    }
+  }
+
+  body.innerHTML = contentHtml + quizHtml;
+  body.scrollTop = 0;
+}
+
+async function upsertLessonView(lessonId, completed, timeSpent) {
+  try {
+    const { data: existing } = await db.from('academy_lesson_views').select('*').eq('user_id', currentUser.id).eq('lesson_id', lessonId).maybeSingle();
+    if (existing) {
+      await db.from('academy_lesson_views').update({
+        last_seen_at: new Date().toISOString(),
+        time_spent_seconds: (existing.time_spent_seconds || 0) + (timeSpent || 0),
+        completed: completed || existing.completed
+      }).eq('id', existing.id);
+    } else {
+      await db.from('academy_lesson_views').insert({
+        user_id: currentUser.id,
+        lesson_id: lessonId,
+        course_id: playerCourse.id,
+        time_spent_seconds: timeSpent || 0,
+        completed: completed || false
+      });
+    }
+  } catch (e) { /* silent */ }
+}
+
+function gotoPrevLesson() { if (playerIndex > 0) { playerIndex--; renderLessonInPlayer(); } }
+function gotoNextLesson() { if (playerIndex < playerLessons.length - 1) { playerIndex++; renderLessonInPlayer(); } }
+async function closeLessonPlayer() {
+  if (playerLessons[playerIndex]) {
+    const elapsed = Math.floor((Date.now() - playerStartedAt) / 1000);
+    await upsertLessonView(playerLessons[playerIndex].id, false, elapsed);
+  }
+  if (playerTickInterval) { clearInterval(playerTickInterval); playerTickInterval = null; }
+  document.getElementById('lesson-player').classList.add('hidden');
+  playerCourse = null; playerLessons = []; playerIndex = -1; playerStartedAt = null;
+  await loadMyEnrollments();
+  await loadCompletions();
+  renderView(currentView);
+}
+
+async function completeCurrentLesson() {
+  const lesson = playerLessons[playerIndex];
+  if (!lesson) return;
+  if (lesson.has_quiz) return showMessage('Responda o quiz e clique em "Enviar Respostas" para concluir.', 'info');
+
+  await db.from('academy_progress').upsert({
+    user_id: currentUser.id,
+    lesson_id: lesson.id,
+    completed_at: new Date().toISOString()
+  }, { onConflict: 'user_id,lesson_id' });
+
+  await upsertLessonView(lesson.id, true);
+  showMessage('Aula concluÃ­da! âœ…', 'success');
+
+  const hasNext = playerIndex < playerLessons.length - 1;
+  if (hasNext) {
+    setTimeout(() => gotoNextLesson(), 600);
+  } else {
+    await renderLessonInPlayer();
+    await checkCourseCompletion();
+  }
+}
+
+async function submitPlayerQuiz() {
+  const lesson = playerLessons[playerIndex];
+  if (!lesson) return;
+  const { data: questions } = await db.from('academy_quizzes').select('*').eq('lesson_id', lesson.id).order('order_index');
+  if (!questions || questions.length === 0) return;
+
+  let correct = 0;
+  for (const q of questions) {
+    const sel = document.querySelector(`input[name="pq-${q.id}"]:checked`);
+    const { data: opts } = await db.from('academy_quiz_options').select('*').eq('quiz_id', q.id);
+    const correctId = (opts || []).find(o => o.is_correct)?.id;
+    document.querySelectorAll(`.player-quiz-option[data-quiz="${q.id}"]`).forEach(el => {
+      const optId = el.dataset.opt;
+      if (optId === correctId) el.classList.add('correct');
+      else if (sel && sel.value === optId && optId !== correctId) el.classList.add('wrong');
+    });
+    if (sel && sel.value === correctId) correct++;
+  }
+
+  const pct = Math.round((correct / questions.length) * 100);
+  const passed = pct >= 70;
+  const resultArea = document.getElementById('player-quiz-result');
+  resultArea.innerHTML = `<div class="player-result ${passed ? 'pass' : 'fail'}">
+    ${passed ? 'ðŸŽ‰' : 'ðŸ˜•'} VocÃª acertou ${correct}/${questions.length} (${pct}%). ${passed ? 'Aula concluÃ­da!' : 'Nota mÃ­nima: 70%. Tente novamente.'}
+  </div>`;
+
+  if (passed) {
+    await db.from('academy_progress').upsert({
+      user_id: currentUser.id,
+      lesson_id: lesson.id,
+      completed_at: new Date().toISOString(),
+      quiz_score: pct
+    }, { onConflict: 'user_id,lesson_id' });
+
+    await upsertLessonView(lesson.id, true);
+    const btnComplete = document.getElementById('btn-complete-lesson');
+    btnComplete.textContent = 'âœ… Aula concluÃ­da';
+    btnComplete.classList.add('done');
+    btnComplete.disabled = true;
+    await checkCourseCompletion();
+  }
+}
+
+async function checkCourseCompletion() {
+  if (!playerCourse) return;
+  const progress = await calcCourseProgress(currentUser.id, playerCourse.id);
+  if (progress.done < progress.total || progress.total === 0) return;
+
+  const { data: existing } = await db
+    .from('academy_completions')
+    .select('*')
+    .eq('user_id', currentUser.id)
+    .eq('course_id', playerCourse.id)
+    .maybeSingle();
+
+  if (existing) return;
+
+  // Verifica se TODAS as aulas com quiz do curso foram 100%
+  const allLessons = await getAllLessonsOfCourse(playerCourse.id);
+  const quizLessons = allLessons.filter(l => l.has_quiz);
+
+  let allPerfect = quizLessons.length > 0;
+  if (quizLessons.length > 0) {
+    const { data: progData } = await db
+      .from('academy_progress')
+      .select('lesson_id, quiz_score')
+      .eq('user_id', currentUser.id)
+      .in('lesson_id', quizLessons.map(l => l.id));
+
+    const scoreMap = {};
+    (progData || []).forEach(p => { scoreMap[p.lesson_id] = p.quiz_score; });
+    allPerfect = quizLessons.every(l => scoreMap[l.id] === 100);
+  }
+
+  const BASE_POINTS = 5;
+  const BONUS_PERFECT = 2;
+  const points = BASE_POINTS + (allPerfect ? BONUS_PERFECT : 0);
+
+  const code = 'CDE-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).substring(2, 6).toUpperCase();
+
+  await db.from('academy_completions').insert({
+    user_id: currentUser.id,
+    course_id: playerCourse.id,
+    certificate_code: code,
+    points_awarded: points,
+    quiz_perfect: allPerfect
+  });
+
+  await db.from('academy_enrollments')
+    .update({ status: 'completed' })
+    .eq('user_id', currentUser.id)
+    .eq('course_id', playerCourse.id);
+
+  await loadCompletions();
+  await loadTopbarPoints();
+
+  showMessage(
+    allPerfect
+      ? `ðŸŽ‰ Curso concluÃ­do com 100%! +${points} pontos (5 + 2 de bÃ´nus).`
+      : `ðŸŽ‰ Curso concluÃ­do! +${points} pontos.`,
+    'success'
+  );
+
+  setTimeout(() => openCertificateModal(playerCourse.id), 700);
+}
+
+// ==================== CERTIFICADO ====================
+async function openCertificateModal(courseId) {
+  const course = allCourses.find(c => c.id === courseId) || (myEnrollments.find(e => e.course.id === courseId)?.course);
+  if (!course) return showMessage('Curso nÃ£o encontrado.', 'error');
+  const { data: completion } = await db.from('academy_completions').select('*').eq('user_id', currentUser.id).eq('course_id', courseId).maybeSingle();
+  if (!completion) return showMessage('Certificado nÃ£o disponÃ­vel ainda.', 'error');
+  certificateData = { completion, course };
+  document.getElementById('cert-course-title').textContent = course.title;
+  document.getElementById('cert-student-name').textContent = currentProfile.full_name || currentUser.email;
+  document.getElementById('certificate-modal').classList.remove('hidden');
+}
+function closeCertificateModal() { document.getElementById('certificate-modal').classList.add('hidden'); certificateData = null; }
+
+async function fetchImageAsDataURL(url) {
+  const res = await fetch(url, { mode: 'cors' });
+  if (!res.ok) throw new Error('Falha ao carregar logo');
+  const blob = await res.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+// ==================== HELPER: CARREGA IMAGEM COMO DATA URL ====================
+async function imageToDataURL(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth || 400;
+        canvas.height = img.naturalHeight || 400;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        resolve(canvas.toDataURL('image/png'));
+      } catch (e) { reject(e); }
+    };
+    img.onerror = () => reject(new Error('Falha ao carregar imagem'));
+    img.src = url;
+  });
+}
+
+// ==================== HELPER: CARREGA COM PROXY FALLBACK ====================
+async function loadImageWithFallback(primaryUrl, proxyUrl) {
+  try {
+    return await imageToDataURL(primaryUrl);
+  } catch (e) {
+    if (proxyUrl) {
+      try {
+        return await imageToDataURL(proxyUrl);
+      } catch (e2) {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
+// ==================== HELPER: LOGO BLINDEX VETORIAL ====================
+function drawBlindexVector(doc, x, y, size) {
+  const RED = [230, 30, 37];
+  const WHITE = [255, 255, 255];
+
+  // Quadrado vermelho
+  doc.setFillColor(...RED);
+  doc.rect(x, y, size, size, 'F');
+
+  // ===================== TAMANHO DE FONTE DINÃ‚MICO =====================
+  // A diagonal do quadrado Ã© `size * âˆš2`. Queremos que "BLINDEX" preencha
+  // ~88% dessa diagonal, entÃ£o calculamos o tamanho de fonte ideal
+  // iterando com `getTextWidth()` atÃ© convergir.
+  const diagonal = size * Math.SQRT2;
+  const targetWidth = diagonal * 0.88;
+
+  doc.setFont('helvetica', 'bold');
+  let fontSize = size * 0.5;
+  doc.setFontSize(fontSize);
+
+  // 5 iteraÃ§Ãµes de convergÃªncia jÃ¡ bastam
+  for (let i = 0; i < 5; i++) {
+    const w = doc.getTextWidth('BLINDEX');
+    if (w <= 0) break;
+    fontSize *= targetWidth / w;
+    doc.setFontSize(fontSize);
+  }
+
+  // ===================== POSICIONAMENTO CENTRALIZADO =====================
+  const cx = x + size / 2;
+  const cy = y + size / 2;
+
+  doc.saveGraphicsState();
+  doc.setTextColor(...WHITE);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(fontSize);
+
+  // CompensaÃ§Ã£o do baseline
+  const fontMm = fontSize * 0.3528;
+  const baselineShift = fontMm * 0.35;
+  const adjX = -baselineShift * Math.SQRT1_2;
+  const adjY = baselineShift * Math.SQRT1_2;
+
+  doc.text('BLINDEX', cx + adjX, cy + adjY, { align: 'center', angle: 45 });
+
+  // Â® no canto superior direito
+  doc.setFontSize(size * 0.16);
+  doc.text('Â®', x + size * 0.85, y + size * 0.20, { align: 'center' });
+
+  doc.restoreGraphicsState();
+}
+
+// ==================== CERTIFICADO PDF ====================
+async function downloadCertificate() {
+  if (!certificateData) return;
+  const { completion, course } = certificateData;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const W = 297, H = 210;
+
+  const LARANJA = [232, 119, 34];
+  const VERMELHO = [200, 16, 46];
+  const GRAFITE = [65, 64, 66];
+  const CINZA = [109, 110, 113];
+  const CINZA_CLARO = [160, 160, 160];
+
+  const logoCdeUrl = 'https://casadosespelhos.com.br/wp-content/uploads/2018/05/marca_cde_cores_horizontal_tag_bl-2048x713.png';
+  const logoCdeProxy = 'https://images.weserv.nl/?url=' + encodeURIComponent('casadosespelhos.com.br/wp-content/uploads/2018/05/marca_cde_cores_horizontal_tag_bl-2048x713.png');
+  const logoDataUrl = await loadImageWithFallback(logoCdeUrl, logoCdeProxy);
+
+  const nome = currentProfile.full_name || currentUser.email;
+
+  // ==========================================================
+  // PÃGINA 1 â€” CERTIFICADO
+  // ==========================================================
+  doc.setFillColor(255, 255, 255);
+  doc.rect(0, 0, W, H, 'F');
+
+  if (logoDataUrl) {
+    try {
+      if (doc.setGState && doc.GState) {
+        doc.setGState(new doc.GState({ opacity: 0.05 }));
+        const wmW = 200;
+        const wmH = wmW * (713 / 2048);
+        doc.addImage(logoDataUrl, 'PNG', (W - wmW) / 2, (H - wmH) / 2 + 10, wmW, wmH);
+        doc.setGState(new doc.GState({ opacity: 1 }));
+      }
+    } catch (e) { /* sem marca d'Ã¡gua */ }
+  }
+
+  doc.setFillColor(...LARANJA); doc.rect(0, 0, W / 2, 8, 'F');
+  doc.setFillColor(...VERMELHO); doc.rect(W / 2, 0, W / 2, 8, 'F');
+  doc.setFillColor(...LARANJA); doc.rect(0, H - 8, W / 2, 8, 'F');
+  doc.setFillColor(...VERMELHO); doc.rect(W / 2, H - 8, W / 2, 8, 'F');
+
+  doc.setDrawColor(...LARANJA); doc.setLineWidth(0.8);
+  doc.rect(12, 12, W - 24, H - 24);
+  doc.setDrawColor(...VERMELHO); doc.setLineWidth(0.3);
+  doc.rect(14, 14, W - 28, H - 28);
+
+  if (logoDataUrl) {
+    const logoW = 90;
+    const logoH = logoW * (713 / 2048);
+    doc.addImage(logoDataUrl, 'PNG', (W - logoW) / 2, 19, logoW, logoH);
+  } else {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(22);
+    doc.setTextColor(...GRAFITE);
+    doc.text('CDE | CASA DOS ESPELHOS', W / 2, 32, { align: 'center' });
+    doc.setFontSize(9);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...CINZA);
+    doc.text('desde 1978', W / 2, 38, { align: 'center' });
+  }
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(...CINZA);
+  doc.text('C D E   A C A D E M Y', W / 2, 60, { align: 'center' });
+
+  doc.setFontSize(28);
+  doc.setTextColor(...VERMELHO);
+  doc.text('CERTIFICADO', W / 2, 73, { align: 'center' });
+
+  doc.setFontSize(12);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(...CINZA);
+  doc.text('DE CONCLUSÃƒO', W / 2, 80, { align: 'center' });
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
+  doc.setTextColor(...GRAFITE);
+  doc.text('Certificamos que', W / 2, 94, { align: 'center' });
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(22);
+  doc.setTextColor(...GRAFITE);
+  doc.text(nome, W / 2, 106, { align: 'center' });
+
+  const cargo = currentProfile.position || '';
+  const setor = currentProfile.sector || '';
+  const partes = [];
+  if (cargo) partes.push(cargo);
+  if (setor) partes.push(setor);
+  if (partes.length > 0) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(...CINZA);
+    doc.text(partes.join('  â€¢  '), W / 2, 113, { align: 'center' });
+  }
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
+  doc.setTextColor(...GRAFITE);
+  doc.text('concluiu com Ãªxito o curso de', W / 2, 123, { align: 'center' });
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15);
+  doc.setTextColor(...LARANJA);
+  const courseTitle = course.title.length > 70 ? course.title.substring(0, 67) + '...' : course.title;
+  doc.text(courseTitle, W / 2, 134, { align: 'center' });
+
+  const dateStr = new Date(completion.completed_at).toLocaleDateString('pt-BR');
+  const hours = course.workload_hours || 1;
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(10);
+  doc.setTextColor(...CINZA);
+  doc.text('Realizado atravÃ©s da nossa plataforma CDE ACADEMY,', W / 2, 144, { align: 'center' });
+  doc.text('na modalidade ONLINE, no perÃ­odo de ' + dateStr + ',', W / 2, 150, { align: 'center' });
+  doc.text('com carga horÃ¡ria total de ' + hours + ' horas.', W / 2, 156, { align: 'center' });
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10);
+  doc.setTextColor(...VERMELHO);
+  doc.text('Certificado nÂº: ' + completion.certificate_code, W / 2, 168, { align: 'center' });
+
+  const sigY = 180;
+  doc.setDrawColor(...GRAFITE);
+  doc.setLineWidth(0.4);
+  doc.line(W / 2 - 55, sigY, W / 2 + 55, sigY);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(...CINZA);
+  doc.text('K K KRAUSS ARAUJO INDUSTRIA E COMERCIO DE VIDROS LTDA - ME', W / 2, sigY + 6, { align: 'center' });
+  doc.setTextColor(...CINZA_CLARO);
+  doc.text('CDE IndÃºstria de Vidros  â€¢  CNPJ 84.544.246/0001-14', W / 2, sigY + 10, { align: 'center' });
+
+  try {
+    const qrContent = [
+      'CDE ACADEMY',
+      'Certificado: ' + completion.certificate_code,
+      'Curso: ' + course.title,
+      'Aluno: ' + nome,
+      'Data: ' + dateStr
+    ].join(' | ');
+    const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&margin=0&data=' + encodeURIComponent(qrContent);
+    const qrDataUrl = await imageToDataURL(qrUrl);
+    if (qrDataUrl) {
+      const qrSize = 24;
+      const qrX = 28;
+      const qrY = H - 52;
+      doc.addImage(qrDataUrl, 'PNG', qrX, qrY, qrSize, qrSize);
+      doc.setFontSize(6);
+      doc.setTextColor(...CINZA_CLARO);
+      doc.text('Verifique autenticidade', qrX + qrSize / 2, qrY + qrSize + 3, { align: 'center' });
+    }
+  } catch (e) { /* sem QR */ }
+
+  const blindexSize = 24;
+  const blindexX = W - 28 - blindexSize;
+  const blindexY = H - 52;
+  drawBlindexVector(doc, blindexX, blindexY, blindexSize);
+
+  // ==========================================================
+  // PÃGINA 2 â€” CONTEÃšDO PROGRAMÃTICO
+  // ==========================================================
+  const { data: modsRaw } = await db
+    .from('academy_modules')
+    .select('*')
+    .eq('course_id', course.id)
+    .order('order_index');
+
+  const modulesData = [];
+  for (const m of (modsRaw || [])) {
+    const { data: lessonsRaw } = await db
+      .from('academy_lessons')
+      .select('title, content_type, has_quiz, order_index')
+      .eq('module_id', m.id)
+      .order('order_index');
+    modulesData.push({ title: m.title || '', lessons: lessonsRaw || [] });
+  }
+
+  function drawContentFrame(pageNum) {
+    doc.setFillColor(255, 255, 255);
+    doc.rect(0, 0, W, H, 'F');
+
+    if (logoDataUrl) {
+      try {
+        if (doc.setGState && doc.GState) {
+          doc.setGState(new doc.GState({ opacity: 0.04 }));
+          const wmW = 180;
+          const wmH = wmW * (713 / 2048);
+          doc.addImage(logoDataUrl, 'PNG', (W - wmW) / 2, (H - wmH) / 2 + 10, wmW, wmH);
+          doc.setGState(new doc.GState({ opacity: 1 }));
+        }
+      } catch (e) { /* silent */ }
+    }
+
+    doc.setFillColor(...LARANJA); doc.rect(0, 0, W / 2, 8, 'F');
+    doc.setFillColor(...VERMELHO); doc.rect(W / 2, 0, W / 2, 8, 'F');
+    doc.setFillColor(...LARANJA); doc.rect(0, H - 8, W / 2, 8, 'F');
+    doc.setFillColor(...VERMELHO); doc.rect(W / 2, H - 8, W / 2, 8, 'F');
+
+    doc.setDrawColor(...LARANJA); doc.setLineWidth(0.8);
+    doc.rect(12, 12, W - 24, H - 24);
+    doc.setDrawColor(...VERMELHO); doc.setLineWidth(0.3);
+    doc.rect(14, 14, W - 28, H - 28);
+
+    if (logoDataUrl) {
+      const logoW = 60;
+      const logoH = logoW * (713 / 2048);
+      doc.addImage(logoDataUrl, 'PNG', (W - logoW) / 2, 18, logoW, logoH);
+    } else {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.setTextColor(...GRAFITE);
+      doc.text('CDE | CASA DOS ESPELHOS', W / 2, 28, { align: 'center' });
+    }
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(...CINZA);
+    doc.text('C D E   A C A D E M Y', W / 2, 42, { align: 'center' });
+
+    doc.setFontSize(20);
+    doc.setTextColor(...VERMELHO);
+    doc.text('CONTEÃšDO PROGRAMÃTICO', W / 2, 54, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    doc.setTextColor(...CINZA);
+    const ct = course.title.length > 90 ? course.title.substring(0, 87) + '...' : course.title;
+    doc.text(ct, W / 2, 61, { align: 'center' });
+
+    doc.setDrawColor(...LARANJA);
+    doc.setLineWidth(0.5);
+    doc.line(W / 2 - 50, 65, W / 2 + 50, 65);
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...CINZA_CLARO);
+    doc.text('Certificado nÂº: ' + completion.certificate_code, 22, H - 18, { align: 'left' });
+    doc.text('PÃ¡gina ' + pageNum, W - 22, H - 18, { align: 'right' });
+    doc.text('Emitido em ' + new Date().toLocaleDateString('pt-BR'), W / 2, H - 18, { align: 'center' });
+
+    return 78;
+  }
+
+  let currentPageNum = 1;
+  let y = 0;
+
+  function newContentPage() {
+    currentPageNum++;
+    doc.addPage('a4', 'landscape');
+    return drawContentFrame(currentPageNum);
+  }
+
+  if (modulesData.length > 0) {
+    y = newContentPage();
+    const contentBottom = H - 25;
+
+    for (let mi = 0; mi < modulesData.length; mi++) {
+      const mod = modulesData[mi];
+
+      if (y + 11 > contentBottom) {
+        y = newContentPage();
+      }
+
+      doc.setFillColor(255, 245, 235);
+      doc.roundedRect(25, y - 5, W - 50, 9, 1.5, 1.5, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.setTextColor(...VERMELHO);
+      doc.text('MÃ“DULO ' + (mi + 1), 28, y + 1);
+
+      doc.setFontSize(10);
+      doc.setTextColor(...GRAFITE);
+      const modTitle = mod.title.length > 70 ? mod.title.substring(0, 67) + '...' : mod.title;
+      doc.text(modTitle, 55, y + 1);
+      y += 11;
+
+      for (let li = 0; li < mod.lessons.length; li++) {
+        if (y > contentBottom) {
+          y = newContentPage();
+        }
+
+        const lesson = mod.lessons[li];
+        const lessonNum = (mi + 1) + '.' + (li + 1);
+        const typeLabel = { pdf: 'PDF', video: 'VÃ­deo', slides: 'Slides', image: 'Imagem', text: 'Texto' }[lesson.content_type] || '';
+
+        doc.setFillColor(...CINZA_CLARO);
+        doc.circle(35, y - 1, 0.8, 'F');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.setTextColor(...CINZA);
+        doc.text(lessonNum, 40, y);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9.5);
+        doc.setTextColor(...GRAFITE);
+        const lessonTitle = lesson.title.length > 80 ? lesson.title.substring(0, 77) + '...' : lesson.title;
+        doc.text(lessonTitle, 52, y);
+
+        doc.setFontSize(7);
+        if (lesson.has_quiz) {
+          doc.setTextColor(...LARANJA);
+          doc.text(typeLabel + ' â€¢ QuestionÃ¡rio', W - 28, y, { align: 'right' });
+        } else {
+          doc.setTextColor(...CINZA_CLARO);
+          doc.text(typeLabel, W - 28, y, { align: 'right' });
+        }
+
+        y += 7;
+      }
+
+      y += 4;
+    }
+  }
+
+  const safeTitle = course.title.replace(/[^a-zA-Z0-9]/g, '_');
+  const safeName = nome.replace(/[^a-zA-Z0-9]/g, '_');
+  const fn = 'Certificado_' + safeTitle + '_' + safeName + '.pdf';
+  doc.save(fn);
+  showMessage('Certificado gerado! ðŸ“¥', 'success');
+}
+
+// ==================== GESTÃƒO DE PONTOS ====================
+let pointsCache = [];
+let editingAdjustUserId = null;
+
+async function renderPointsManagement() {
+  const main = document.getElementById('main-content');
+  main.innerHTML = '<div class="state-box">Carregando pontosâ€¦</div>';
+
+  try {
+    const [profilesRes, certsRes, acadRes, adjRes] = await Promise.all([
+      db.from('profiles').select('id, full_name, email, role, sector, position'),
+      db.from('certificates').select('user_id, points_awarded, status'),
+      db.from('academy_completions').select('user_id, points_awarded, quiz_perfect, completed_at'),
+      db.from('academy_points_adjustments').select('*').order('created_at', { ascending: false })
+    ]);
+
+    const profiles = profilesRes.data || [];
+    const certs    = certsRes.data   || [];
+    const acad     = acadRes.data    || [];
+    const adjs     = adjRes.data     || [];
+
+    // Agrega pontos por usuÃ¡rio
+    const byUser = {};
+    profiles.forEach(p => {
+      byUser[p.id] = {
+        id: p.id,
+        nome: p.full_name || p.email,
+        email: p.email,
+        cargo: p.position || '',
+        setor: p.sector || 'â€”',
+        role: p.role,
+        pdi: 0, academy: 0, ajustes: 0, total: 0,
+        cursosConcluidos: 0,
+        perfeitos: 0
+      };
+    });
+
+    certs.forEach(c => {
+      if (c.status === 'approved' && byUser[c.user_id]) {
+        byUser[c.user_id].pdi += c.points_awarded || 0;
+      }
+    });
+    acad.forEach(c => {
+      if (byUser[c.user_id]) {
+        byUser[c.user_id].academy += c.points_awarded || 0;
+        byUser[c.user_id].cursosConcluidos++;
+        if (c.quiz_perfect) byUser[c.user_id].perfeitos++;
+      }
+    });
+    adjs.forEach(a => {
+      if (byUser[a.user_id]) byUser[a.user_id].ajustes += a.points || 0;
+    });
+
+    pointsCache = Object.values(byUser).map(u => {
+      u.total = u.pdi + u.academy + u.ajustes;
+      return u;
+    });
+
+    // KPIs globais
+    const totalEmpresa = pointsCache.reduce((s, u) => s + u.total, 0);
+    const totalPDI     = pointsCache.reduce((s, u) => s + u.pdi, 0);
+    const totalAcademy = pointsCache.reduce((s, u) => s + u.academy, 0);
+    const totalAjustes = pointsCache.reduce((s, u) => s + u.ajustes, 0);
+    const media = pointsCache.length > 0 ? Math.round(totalEmpresa / pointsCache.length) : 0;
+
+    const ranking = [...pointsCache].sort((a, b) => b.total - a.total);
+
+    main.innerHTML = `
+      <div class="section-header">
+        <h2>â­ Gerenciar Pontos</h2>
+        <span class="section-sub">${pointsCache.length} colaboradores Â· ${totalEmpresa.toLocaleString('pt-BR')} pts distribuÃ­dos</span>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card"><div class="stat-icon">â­</div><div class="stat-value">${totalEmpresa.toLocaleString('pt-BR')}</div><div class="stat-label">Pontos totais</div></div>
+        <div class="stat-card"><div class="stat-icon">ðŸ“Š</div><div class="stat-value" style="color:var(--roxo-medio);">${totalPDI}</div><div class="stat-label">Origem PDI</div></div>
+        <div class="stat-card"><div class="stat-icon">ðŸŽ“</div><div class="stat-value" style="color:var(--verde);">${totalAcademy}</div><div class="stat-label">Origem Academy</div></div>
+        <div class="stat-card"><div class="stat-icon">âœï¸</div><div class="stat-value" style="color:var(--cde-laranja-escuro);">${totalAjustes}</div><div class="stat-label">Ajustes manuais</div></div>
+        <div class="stat-card"><div class="stat-icon">ðŸ“ˆ</div><div class="stat-value">${media}</div><div class="stat-label">MÃ©dia por pessoa</div></div>
+      </div>
+
+      <div style="background: var(--branco); border-radius:14px; padding:22px; border:1px solid var(--cinza-borda); margin-bottom: 20px; overflow-x: auto;">
+        <h3 style="font-size: 1rem; margin-bottom: 14px;">ðŸ† Ranking completo</h3>
+        <table class="analytics-table">
+          <thead><tr>
+            <th style="width:40px;">#</th>
+            <th>Colaborador</th>
+            <th>Setor</th>
+            <th style="text-align:center;">PDI</th>
+            <th style="text-align:center;">Academy</th>
+            <th style="text-align:center;">Ajustes</th>
+            <th style="text-align:center;">Total</th>
+            <th style="text-align:right;">AÃ§Ãµes</th>
+          </tr></thead>
+          <tbody>
+            ${ranking.map((u, i) => `
+              <tr>
+                <td style="font-weight:800; color:${i===0?'var(--amarelo)':i===1?'var(--texto-soft)':i===2?'var(--cde-laranja-escuro)':'var(--texto-mute)'};">${i+1}</td>
+                <td>
+                  <div style="font-weight:700;">${escapeHtml(u.nome)}</div>
+                  <div style="font-size:0.72rem; color:var(--texto-soft);">${escapeHtml(u.cargo || u.email)}</div>
+                </td>
+                <td style="font-size:0.82rem;">${escapeHtml(u.setor)}</td>
+                <td style="text-align:center;">${u.pdi}</td>
+                <td style="text-align:center;">${u.academy}</td>
+                <td style="text-align:center; color:${u.ajustes !== 0 ? 'var(--cde-laranja-escuro)' : 'var(--texto-mute)'};">${u.ajustes > 0 ? '+' : ''}${u.ajustes}</td>
+                <td style="text-align:center; font-weight:800; font-size:1rem;">${u.total}</td>
+                <td style="text-align:right;">
+                  <button class="btn-secondary btn-small" onclick="openPointsAdjustModal('${u.id}')">â­ Ajustar</button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="background: var(--branco); border-radius:14px; padding:22px; border:1px solid var(--cinza-borda);">
+        <h3 style="font-size: 1rem; margin-bottom: 14px;">ðŸ“œ HistÃ³rico de ajustes manuais</h3>
+        ${adjs.length === 0 ? '<p style="color:var(--texto-soft); font-size:0.88rem;">Nenhum ajuste manual feito ainda.</p>' : adjs.slice(0, 30).map(a => {
+          const u = byUser[a.user_id];
+          return `
+            <div style="padding: 12px 0; border-bottom: 1px solid var(--cinza-borda); display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+              <div style="flex:1; min-width:200px;">
+                <div style="font-weight:700; font-size:0.88rem;">${escapeHtml(u?.nome || 'UsuÃ¡rio removido')}</div>
+                <div style="font-size:0.78rem; color:var(--texto-soft); margin-top:2px;">${escapeHtml(a.reason)}</div>
+                <div style="font-size:0.7rem; color:var(--texto-mute); margin-top:4px;">
+                  ${new Date(a.created_at).toLocaleString('pt-BR')} Â· por ${escapeHtml(a.created_by_name || 'â€”')}
+                </div>
+              </div>
+              <div style="font-weight:800; font-size:1rem; color:${a.points >= 0 ? 'var(--verde)' : 'var(--cde-vermelho)'}; align-self:center;">
+                ${a.points > 0 ? '+' : ''}${a.points} pts
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  } catch (e) {
+    console.error('Erro renderPointsManagement:', e);
+    main.innerHTML = `<div class="state-box" style="color:var(--cde-vermelho);">Erro: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function openPointsAdjustModal(userId) {
+  editingAdjustUserId = userId;
+  const u = pointsCache.find(x => x.id === userId);
+  if (!u) return;
+  document.getElementById('pa-subtitle').textContent = `${u.nome} Â· Total atual: ${u.total} pts`;
+  document.getElementById('pa-points').value = 5;
+  document.getElementById('pa-reason').value = '';
+  document.getElementById('points-adjust-modal').classList.remove('hidden');
+}
+
+function closePointsAdjustModal() {
+  document.getElementById('points-adjust-modal').classList.add('hidden');
+  editingAdjustUserId = null;
+}
+
+async function savePointsAdjustment() {
+  if (!editingAdjustUserId) return;
+  const points = parseInt(document.getElementById('pa-points').value, 10);
+  const reason = document.getElementById('pa-reason').value.trim();
+
+  if (!points || points === 0) return showMessage('Informe um valor de pontos (diferente de zero).', 'error');
+  if (!reason) return showMessage('Informe o motivo do ajuste.', 'error');
+
+  try {
+    const { error } = await db.from('academy_points_adjustments').insert({
+      user_id: editingAdjustUserId,
+      points,
+      reason,
+      created_by: currentUser.id,
+      created_by_name: currentProfile.full_name || currentUser.email
+    });
+    if (error) throw error;
+
+    showMessage(`Ajuste de ${points > 0 ? '+' : ''}${points} pts aplicado.`, 'success');
+    closePointsAdjustModal();
+
+    // Se o ajuste foi no prÃ³prio usuÃ¡rio logado, atualiza a topbar
+    if (editingAdjustUserId === currentUser.id) await loadTopbarPoints();
+
+    await renderPointsManagement();
+  } catch (e) {
+    showMessage('Erro: ' + e.message, 'error');
+  }
+}
+
+// ==================== PAINEL DE GESTÃƒO ====================
+function renderManageCourses() {
+  const courses = allCourses;
+  return `
+    <div class="section-header">
+      <h2>âš™ï¸ Gerenciar Cursos</h2>
+      <span class="section-sub">${courses.length} curso${courses.length === 1 ? '' : 's'} no total</span>
+      <div class="header-actions">
+        <button class="btn-primary" onclick="openCourseForm()">+ Novo Curso</button>
+      </div>
+    </div>
+    ${courses.length === 0 ? renderEmpty('ðŸ“š', 'Nenhum curso criado ainda. Clique em "+ Novo Curso".') :
+      `<div class="courses-grid">
+        ${courses.map(c => {
+          const coverStyle = c.cover_url ? `background-image: url('${escapeHtml(c.cover_url)}'); background-size: cover; background-position: center;` : '';
+          const coverContent = c.cover_url ? '' : 'ðŸ“˜';
+          const pubBadge = c.is_published === false
+            ? '<span class="course-badge" style="background: #FDE8EB; color: var(--cde-vermelho);">Rascunho</span>'
+            : '<span class="course-badge concluido">Publicado</span>';
+          return `
+            <div class="course-card" onclick="openCourseEditor('${c.id}')">
+              <div class="course-cover" style="${coverStyle}">${pubBadge}${coverContent}</div>
+              <div class="course-body">
+                <h3>${escapeHtml(c.title)}</h3>
+                <p>${escapeHtml(c.description || 'Sem descriÃ§Ã£o.')}</p>
+                <div class="course-meta">
+                  <span class="tag">â± ${c.workload_hours || 1}h</span>
+                  ${c.sector ? `<span class="tag">ðŸ· ${escapeHtml(c.sector)}</span>` : ''}
+                </div>
+                <div style="display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap;">
+                  <button class="btn-secondary btn-small" onclick="event.stopPropagation();openCourseForm('${c.id}')">âœï¸ Editar</button>
+                  <button class="btn-secondary btn-small" onclick="event.stopPropagation();openEnrollModal('${c.id}')">ðŸ‘¥ MatrÃ­culas</button>
+                  <button class="btn-danger btn-small" onclick="event.stopPropagation();deleteCourse('${c.id}')">ðŸ—‘</button>
+                </div>
+              </div>
+            </div>`;
+        }).join('')}
+      </div>`}
+  `;
+}
+
+// CRUD CURSOS
+function openCourseForm(courseId = null) {
+  editingCourseId = courseId;
+  editingCourseCoverUrl = null;
+  document.getElementById('cf-title-h').textContent = courseId ? 'Editar Curso' : 'Novo Curso';
+  document.getElementById('cf-subtitle').textContent = courseId ? 'Atualize as informaÃ§Ãµes.' : 'Preencha os dados.';
+  const t = document.getElementById('cf-title'), d = document.getElementById('cf-desc'), h = document.getElementById('cf-hours'),
+        s = document.getElementById('cf-sector'), p = document.getElementById('cf-published'), c = document.getElementById('cf-cover');
+  t.value = ''; d.value = ''; h.value = 2; s.value = ''; p.checked = true; c.value = '';
+  document.getElementById('cf-cover-name').textContent = '';
+  if (courseId) {
+    const course = allCourses.find(x => x.id === courseId);
+    if (course) {
+      t.value = course.title || ''; d.value = course.description || '';
+      h.value = course.workload_hours || 2; s.value = course.sector || '';
+      p.checked = course.is_published !== false;
+      editingCourseCoverUrl = course.cover_url || null;
+      if (course.cover_url) document.getElementById('cf-cover-name').textContent = 'âœ“ Capa atual mantida';
+    }
+  }
+  document.getElementById('course-form-modal').classList.remove('hidden');
+}
+function closeCourseForm() { document.getElementById('course-form-modal').classList.add('hidden'); editingCourseId = null; editingCourseCoverUrl = null; }
+function onCoverChange(e) { const f = e.target.files[0]; document.getElementById('cf-cover-name').textContent = f ? `âœ“ ${f.name}` : ''; }
+async function saveCourse() {
+  const title = document.getElementById('cf-title').value.trim();
+  if (!title) return showMessage('O tÃ­tulo Ã© obrigatÃ³rio.', 'error');
+  const description = document.getElementById('cf-desc').value.trim();
+  const hours = parseInt(document.getElementById('cf-hours').value, 10) || 2;
+  const sector = document.getElementById('cf-sector').value || null;
+  const isPublished = document.getElementById('cf-published').checked;
+  const coverFile = document.getElementById('cf-cover').files[0];
+  const btn = document.getElementById('cf-save-btn');
+  btn.disabled = true; btn.textContent = 'Salvandoâ€¦';
+  try {
+    let coverUrl = editingCourseCoverUrl;
+    if (coverFile) {
+      const path = `covers/${Date.now()}_${coverFile.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+      const { error: upErr } = await db.storage.from(BUCKET).upload(path, coverFile, { upsert: true });
+      if (upErr) throw upErr;
+      const { data: pub } = db.storage.from(BUCKET).getPublicUrl(path);
+      coverUrl = pub.publicUrl;
+    }
+    const payload = { title, description: description || null, workload_hours: hours, sector, is_published: isPublished, cover_url: coverUrl };
+    if (editingCourseId) {
+      const { error } = await db.from('academy_courses').update(payload).eq('id', editingCourseId);
+      if (error) throw error;
+      showMessage('Curso atualizado!', 'success');
+    } else {
+      payload.created_by = currentUser.id;
+      const { error } = await db.from('academy_courses').insert(payload);
+      if (error) throw error;
+      showMessage('Curso criado!', 'success');
+    }
+    closeCourseForm();
+    await loadCourses();
+    if (currentView === 'manage') renderView('manage');
+  } catch (e) { showMessage('Erro ao salvar: ' + e.message, 'error'); }
+  finally { btn.disabled = false; btn.textContent = 'Salvar Curso'; }
+}
+async function deleteCourse(courseId) {
+  const course = allCourses.find(c => c.id === courseId);
+  if (!course) return;
+  if (!confirm(`Excluir o curso "${course.title}"?\n\nIsso removerÃ¡ mÃ³dulos, aulas e quizzes.`)) return;
+  try {
+    const { error } = await db.from('academy_courses').delete().eq('id', courseId);
+    if (error) throw error;
+    showMessage('Curso excluÃ­do.', 'success');
+    await loadCourses();
+    renderView('manage');
+  } catch (e) { showMessage('Erro: ' + e.message, 'error'); }
+}
+
+// COURSE EDITOR
+async function openCourseEditor(courseId) {
+  const course = allCourses.find(c => c.id === courseId);
+  if (!course) return showMessage('Curso nÃ£o encontrado.', 'error');
+  currentEditorCourseId = courseId;
+  document.getElementById('ce-course-title').textContent = course.title;
+  document.getElementById('ce-course-sub').textContent = `${course.workload_hours || 1}h${course.sector ? ' â€¢ ' + course.sector : ''}${course.is_published === false ? ' â€¢ Rascunho' : ''}`;
+  await loadEditorModules();
+  document.getElementById('course-editor-view').classList.remove('hidden');
+  window.scrollTo(0, 0);
+}
+function closeCourseEditor() {
+  document.getElementById('course-editor-view').classList.add('hidden');
+  currentEditorCourseId = null;
+  renderView('manage');
+}
+async function loadEditorModules() {
+  const container = document.getElementById('ce-modules-tree');
+  container.innerHTML = '<div class="state-box">Carregandoâ€¦</div>';
+  try {
+    const { data: mods, error } = await db.from('academy_modules').select('*').eq('course_id', currentEditorCourseId).order('order_index');
+    if (error) throw error;
+    currentEditorModules = mods || [];
+    if (currentEditorModules.length === 0) {
+      container.innerHTML = `<div class="state-box"><span class="emoji">ðŸ“¦</span>Nenhum mÃ³dulo criado.<br><button class="btn-primary" style="margin-top: 14px;" onclick="openModuleForm()">+  primeiro mÃ³dulo</button></div>`;
+      return;
+    }
+    const html = await Promise.all(currentEditorModules.map(async (mod) => {
+      const { data: lessons } = await db.from('academy_lessons').select('*').eq('module_id', mod.id).order('order_index');
+      const lessonList = lessons || [];
+      const lessonsHtml = lessonList.map(l => {
+        const icons = { pdf: 'ðŸ“„', video: 'ðŸŽ¬', slides: 'ðŸ“Š', image: 'ðŸ–¼ï¸', text: 'ðŸ“' };
+        const icon = icons[l.content_type] || 'ðŸ“„';
+        const quizBadge = l.has_quiz ? ' <span style="background: var(--amarelo-bg); color: var(--amarelo); padding: 2px 8px; border-radius: 10px; font-size: 0.65rem; font-weight: 800;">QUIZ</span>' : '';
+        const typeLabel = { pdf: 'PDF', video: 'VÃ­deo', slides: 'Slides externos', image: 'Imagem', text: 'Texto' }[l.content_type] || l.content_type;
+        return `
+          <div class="tree-lesson">
+            <div class="info">
+              <div class="icon-box">${icon}</div>
+              <div>
+                <div class="title">${escapeHtml(l.title)}${quizBadge}</div>
+                <div class="subtitle">${typeLabel}</div>
+              </div>
+            </div>
+            <div class="actions">
+              <button class="btn-secondary btn-small" onclick="previewLesson('${l.id}')">ðŸ‘ PrÃ©via</button>
+              <button class="btn-secondary btn-small" onclick="openLessonForm('${mod.id}','${l.id}')">âœï¸ Editar</button>
+              ${l.has_quiz ? `<button class="btn-secondary btn-small" onclick="openQuizEditor('${l.id}')">ðŸ“ Quiz</button>` : ''}
+              <button class="btn-danger btn-small" onclick="deleteLesson('${l.id}')">ðŸ—‘</button>
+            </div>
+          </div>`;
+      }).join('');
+      return `
+        <div class="tree-module">
+          <div class="tree-module-header">
+            <h4>ðŸ“¦ ${escapeHtml(mod.title)} <span style="font-size: 0.75rem; color: var(--texto-soft); font-weight: 600;">(${lessonList.length} aula${lessonList.length === 1 ? '' : 's'})</span></h4>
+            <div class="actions">
+              <button class="btn-primary btn-small" onclick="openLessonForm('${mod.id}')">+ Aula</button>
+              <button class="btn-secondary btn-small" onclick="openModuleForm('${mod.id}')">âœï¸</button>
+              <button class="btn-danger btn-small" onclick="deleteModule('${mod.id}')">ðŸ—‘</button>
+            </div>
+          </div>
+          <div class="tree-lessons">
+            ${lessonList.length === 0 ? '<div style="padding: 16px; color: var(--texto-soft); font-size: 0.85rem; text-align: center;">Nenhuma aula criada.</div>' : lessonsHtml}
+          </div>
+        </div>`;
+    }));
+    container.innerHTML = html.join('');
+  } catch (e) {
+    container.innerHTML = `<div class="state-box" style="color: var(--cde-vermelho);">Erro: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function previewLesson(lessonId) {
+  const { data: l } = await db.from('academy_lessons').select('*').eq('id', lessonId).single();
+  if (!l) return;
+  document.getElementById('player-lesson-title').textContent = l.title;
+  document.getElementById('player-course-title').textContent = 'ðŸ‘ Modo prÃ©via';
+  document.getElementById('player-lesson-badge').textContent = 'PREVIEW';
+  document.getElementById('player-progress-fill').style.width = '100%';
+  document.getElementById('btn-prev-lesson').disabled = true;
+  document.getElementById('btn-next-lesson').disabled = true;
+  document.getElementById('btn-complete-lesson').textContent = 'âœ“ Modo prÃ©via';
+  document.getElementById('btn-complete-lesson').classList.add('done');
+  document.getElementById('btn-complete-lesson').disabled = true;
+
+  playerCourse = null;
+  playerLessons = [{ ...l, _preview: true }];
+  playerIndex = 0;
+  playerStartedAt = Date.now();
+  if (playerTickInterval) clearInterval(playerTickInterval);
+  playerTickInterval = null;
+
+  const body = document.getElementById('player-body');
+  const type = l.content_type || 'text';
+  let html = '';
+  if (type === 'video' && l.content_url) {
+    const embedUrl = getVideoEmbedUrl(l.content_url);
+    html = `<div class="content-viewer" style="background: #000; padding: 0;"><div style="position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; border-radius: 8px;"><iframe src="${escapeHtml(embedUrl)}" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none;" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe></div></div>`;
+  } else if (type === 'pdf' && l.content_url) html = `<div class="content-viewer"><iframe class="pdf-frame" src="${escapeHtml(l.content_url)}"></iframe></div>`;
+  else if (type === 'slides' && l.content_url) html = `<div class="content-viewer"><iframe class="slides-frame" src="${escapeHtml(l.content_url)}" allowfullscreen></iframe></div>`;
+  else if (type === 'image' && l.content_url) html = `<div class="content-viewer"><img src="${escapeHtml(l.content_url)}"></div>`;
+  else html = `<div class="content-viewer"><div class="text-content">${l.content_text || '<p>Sem conteÃºdo.</p>'}</div></div>`;
+
+  if (l.has_quiz) {
+    const { data: qs } = await db.from('academy_quizzes').select('*').eq('lesson_id', l.id).order('order_index');
+    if (qs && qs.length > 0) {
+      let qhtml = '';
+      for (const q of qs) {
+        const { data: opts } = await db.from('academy_quiz_options').select('*').eq('quiz_id', q.id).order('order_index');
+        qhtml += `<div class="player-quiz-question"><div class="q-text">${escapeHtml(q.question)}</div>${(opts || []).map(o => `<div class="player-quiz-option ${o.is_correct ? 'correct' : ''}"><span>${o.is_correct ? 'âœ…' : 'â¬œ'} ${escapeHtml(o.option_text)}</span></div>`).join('')}</div>`;
+      }
+      html += `<div class="quiz-block"><h3>ðŸ“ QuestionÃ¡rio (visÃ£o do professor)</h3>${qhtml}</div>`;
+    }
+  }
+  body.innerHTML = html;
+  document.getElementById('lesson-player').classList.remove('hidden');
+  window.scrollTo(0, 0);
+}
+
+// CRUD MÃ“DULOS
+function openModuleForm(moduleId = null) {
+  editingModuleId = moduleId;
+  document.getElementById('mf-title-h').textContent = moduleId ? 'Editar MÃ³dulo' : 'Novo MÃ³dulo';
+  document.getElementById('mf-title').value = '';
+  if (moduleId) {
+    const mod = currentEditorModules.find(m => m.id === moduleId);
+    if (mod) document.getElementById('mf-title').value = mod.title || '';
+  }
+  document.getElementById('module-form-modal').classList.remove('hidden');
+}
+function closeModuleForm() { document.getElementById('module-form-modal').classList.add('hidden'); editingModuleId = null; }
+async function saveModule() {
+  const title = document.getElementById('mf-title').value.trim();
+  if (!title) return showMessage('TÃ­tulo obrigatÃ³rio.', 'error');
+  try {
+    if (editingModuleId) {
+      const { error } = await db.from('academy_modules').update({ title }).eq('id', editingModuleId);
+      if (error) throw error;
+      showMessage('MÃ³dulo atualizado!', 'success');
+    } else {
+      const { data: existing } = await db.from('academy_modules').select('order_index').eq('course_id', currentEditorCourseId).order('order_index', { ascending: false }).limit(1);
+      const nextIdx = (existing?.[0]?.order_index ?? -1) + 1;
+      const { error } = await db.from('academy_modules').insert({ course_id: currentEditorCourseId, title, order_index: nextIdx });
+      if (error) throw error;
+      showMessage('MÃ³dulo criado!', 'success');
+    }
+    closeModuleForm();
+    await loadEditorModules();
+  } catch (e) { showMessage('Erro: ' + e.message, 'error'); }
+}
+async function deleteModule(moduleId) {
+  if (!confirm('Excluir este mÃ³dulo e todas as suas aulas?')) return;
+  try {
+    const { error } = await db.from('academy_modules').delete().eq('id', moduleId);
+    if (error) throw error;
+    showMessage('MÃ³dulo excluÃ­do.', 'success');
+    await loadEditorModules();
+  } catch (e) { showMessage('Erro: ' + e.message, 'error'); }
+}
+
+// CRUD AULAS
+function openLessonForm(moduleId, lessonId = null) {
+  editingLessonModuleId = moduleId;
+  editingLessonId = lessonId;
+  document.getElementById('lf-title-h').textContent = lessonId ? 'Editar Aula' : 'Nova Aula';
+  document.getElementById('lf-title').value = '';
+  document.getElementById('lf-type').value = 'pdf';
+  document.getElementById('lf-text').value = '';
+  document.getElementById('lf-video-url').value = '';
+  document.getElementById('lf-slides-url').value = '';
+  document.getElementById('lf-pdf').value = '';
+  document.getElementById('lf-image').value = '';
+  document.getElementById('lf-pdf-name').textContent = '';
+  document.getElementById('lf-image-name').textContent = '';
+  document.getElementById('lf-has-quiz').checked = false;
+  toggleLessonFields();
+
+  if (lessonId) {
+    db.from('academy_lessons').select('*').eq('id', lessonId).single().then(({ data: l }) => {
+      if (!l) return;
+      document.getElementById('lf-title').value = l.title || '';
+      document.getElementById('lf-type').value = l.content_type || 'pdf';
+      if (l.content_type === 'text') document.getElementById('lf-text').value = l.content_text || '';
+      if (l.content_type === 'video') document.getElementById('lf-video-url').value = l.content_url || '';
+      if (l.content_type === 'slides') document.getElementById('lf-slides-url').value = l.content_url || '';
+      if (l.content_type === 'pdf' && l.content_url) document.getElementById('lf-pdf-name').textContent = 'âœ“ PDF atual mantido';
+      if (l.content_type === 'image' && l.content_url) document.getElementById('lf-image-name').textContent = 'âœ“ Imagem atual mantida';
+      document.getElementById('lf-has-quiz').checked = !!l.has_quiz;
+      toggleLessonFields();
+    });
+  }
+  document.getElementById('lesson-form-modal').classList.remove('hidden');
+}
+function closeLessonForm() { document.getElementById('lesson-form-modal').classList.add('hidden'); editingLessonId = null; editingLessonModuleId = null; }
+function toggleLessonFields() {
+  const t = document.getElementById('lf-type').value;
+  document.getElementById('lf-field-pdf').classList.toggle('hidden', t !== 'pdf');
+  document.getElementById('lf-field-video').classList.toggle('hidden', t !== 'video');
+  document.getElementById('lf-field-slides').classList.toggle('hidden', t !== 'slides');
+  document.getElementById('lf-field-image').classList.toggle('hidden', t !== 'image');
+  document.getElementById('lf-field-text').classList.toggle('hidden', t !== 'text');
+}
+function onPdfChange(e) { const f = e.target.files[0]; document.getElementById('lf-pdf-name').textContent = f ? `âœ“ ${f.name}` : ''; }
+function onImageChange(e) { const f = e.target.files[0]; document.getElementById('lf-image-name').textContent = f ? `âœ“ ${f.name}` : ''; }
+
+async function saveLesson() {
+  const title = document.getElementById('lf-title').value.trim();
+  const type = document.getElementById('lf-type').value;
+  const hasQuiz = document.getElementById('lf-has-quiz').checked;
+  if (!title) return showMessage('TÃ­tulo obrigatÃ³rio.', 'error');
+
+  let contentUrl = null, contentText = null;
+  try {
+    if (type === 'pdf') {
+      const f = document.getElementById('lf-pdf').files[0];
+      if (f) {
+        const path = `pdfs/${Date.now()}_${f.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+        const { error: upErr } = await db.storage.from(BUCKET).upload(path, f, { upsert: true });
+        if (upErr) throw upErr;
+        contentUrl = db.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+      } else if (editingLessonId) {
+        const { data: cur } = await db.from('academy_lessons').select('content_url').eq('id', editingLessonId).single();
+        contentUrl = cur?.content_url;
+      } else return showMessage('Selecione um PDF.', 'error');
+    } else if (type === 'image') {
+      const f = document.getElementById('lf-image').files[0];
+      if (f) {
+        const path = `images/${Date.now()}_${f.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+        const { error: upErr } = await db.storage.from(BUCKET).upload(path, f, { upsert: true });
+        if (upErr) throw upErr;
+        contentUrl = db.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+      } else if (editingLessonId) {
+        const { data: cur } = await db.from('academy_lessons').select('content_url').eq('id', editingLessonId).single();
+        contentUrl = cur?.content_url;
+      } else return showMessage('Selecione uma imagem.', 'error');
+    } else if (type === 'video') {
+      contentUrl = document.getElementById('lf-video-url').value.trim();
+      if (!contentUrl) return showMessage('Informe a URL do vÃ­deo.', 'error');
+      if (!getVideoEmbedUrl(contentUrl)) return showMessage('URL nÃ£o reconhecida. Aceito YouTube, Vimeo e Google Drive.', 'error');
+    } else if (type === 'slides') {
+      contentUrl = document.getElementById('lf-slides-url').value.trim();
+      if (!contentUrl) return showMessage('Informe a URL de incorporaÃ§Ã£o.', 'error');
+    } else if (type === 'text') {
+      contentText = document.getElementById('lf-text').value;
+      if (!contentText.trim()) return showMessage('Digite o conteÃºdo.', 'error');
+    }
+
+    const payload = { title, content_type: type, content_url: contentUrl, content_text: contentText, has_quiz: hasQuiz };
+    if (editingLessonId) {
+      const { error } = await db.from('academy_lessons').update(payload).eq('id', editingLessonId);
+      if (error) throw error;
+      showMessage('Aula atualizada!', 'success');
+    } else {
+      const { data: existing } = await db.from('academy_lessons').select('order_index').eq('module_id', editingLessonModuleId).order('order_index', { ascending: false }).limit(1);
+      payload.module_id = editingLessonModuleId;
+      payload.order_index = (existing?.[0]?.order_index ?? -1) + 1;
+      const { data: created, error } = await db.from('academy_lessons').insert(payload).select().single();
+      if (error) throw error;
+      showMessage('Aula criada!', 'success');
+      if (hasQuiz) {
+        const lessonId = created.id;
+        closeLessonForm();
+        await loadEditorModules();
+        setTimeout(() => openQuizEditor(lessonId), 400);
+        return;
+      }
+    }
+    closeLessonForm();
+    await loadEditorModules();
+  } catch (e) { showMessage('Erro: ' + e.message, 'error'); }
+}
+async function deleteLesson(lessonId) {
+  if (!confirm('Excluir esta aula?')) return;
+  try {
+    const { error } = await db.from('academy_lessons').delete().eq('id', lessonId);
+    if (error) throw error;
+    showMessage('Aula excluÃ­da.', 'success');
+    await loadEditorModules();
+  } catch (e) { showMessage('Erro: ' + e.message, 'error'); }
+}
+
+// QUIZ EDITOR
+async function openQuizEditor(lessonId) {
+  editingQuizLessonId = lessonId;
+  quizQuestions = [];
+  try {
+    const { data: qs } = await db.from('academy_quizzes').select('*').eq('lesson_id', lessonId).order('order_index');
+    if (qs && qs.length > 0) {
+      for (const q of qs) {
+        const { data: opts } = await db.from('academy_quiz_options').select('*').eq('quiz_id', q.id).order('order_index');
+        quizQuestions.push({ question: q.question, options: (opts || []).map(o => ({ text: o.option_text, is_correct: o.is_correct })) });
+      }
+    }
+  } catch (e) { /* silent */ }
+  if (quizQuestions.length === 0) quizQuestions.push({
+    question: '', options: [
+      { text: '', is_correct: true }, { text: '', is_correct: false },
+      { text: '', is_correct: false }, { text: '', is_correct: false }
+    ]
+  });
+  renderQuizEditor();
+  document.getElementById('quiz-modal').classList.remove('hidden');
+}
+function closeQuizEditor() { document.getElementById('quiz-modal').classList.add('hidden'); editingQuizLessonId = null; quizQuestions = []; }
+function addQuizQuestion() {
+  quizQuestions.push({ question: '', options: [
+    { text: '', is_correct: true }, { text: '', is_correct: false },
+    { text: '', is_correct: false }, { text: '', is_correct: false }
+  ]});
+  renderQuizEditor();
+}
+function renderQuizEditor() {
+  const c = document.getElementById('quiz-questions-container');
+  c.innerHTML = quizQuestions.map((q, qi) => `
+    <div class="quiz-question-card">
+      <div class="q-header">
+        <strong style="font-size: 0.9rem;">Pergunta ${qi + 1}</strong>
+        ${quizQuestions.length > 1 ? `<button class="btn-danger btn-small" onclick="removeQuizQuestion(${qi})">ðŸ—‘ Remover</button>` : ''}
+      </div>
+      <input type="text" placeholder="Digite a pergunta..." value="${escapeHtml(q.question)}" oninput="quizQuestions[${qi}].question = this.value" style="width: 100%; padding: 10px; border: 1.5px solid var(--cinza-borda); border-radius: 8px; margin-bottom: 12px; font-size: 0.9rem;">
+      <div style="font-size: 0.75rem; font-weight: 700; color: var(--texto-soft); text-transform: uppercase; margin-bottom: 8px;">OpÃ§Ãµes (marque a correta)</div>
+      ${q.options.map((o, oi) => `
+        <div class="quiz-option-row">
+          <input type="radio" name="correct-${qi}" ${o.is_correct ? 'checked' : ''} onchange="setCorrect(${qi}, ${oi})">
+          <input type="text" placeholder="OpÃ§Ã£o ${oi + 1}" value="${escapeHtml(o.text)}" oninput="quizQuestions[${qi}].options[${oi}].text = this.value">
+          ${q.options.length > 2 ? `<button class="remove-opt" onclick="removeOption(${qi},${oi})">âœ•</button>` : ''}
+        </div>
+      `).join('')}
+      <button class="btn-secondary btn-small" style="margin-top: 6px;" onclick="addOption(${qi})">+ OpÃ§Ã£o</button>
+    </div>
+  `).join('');
+}
+function setCorrect(qi, oi) { quizQuestions[qi].options.forEach((o, i) => o.is_correct = (i === oi)); }
+function removeQuizQuestion(qi) { quizQuestions.splice(qi, 1); renderQuizEditor(); }
+function addOption(qi) { quizQuestions[qi].options.push({ text: '', is_correct: false }); renderQuizEditor(); }
+function removeOption(qi, oi) {
+  const q = quizQuestions[qi];
+  if (q.options.length <= 2) return;
+  const wasCorrect = q.options[oi].is_correct;
+  q.options.splice(oi, 1);
+  if (wasCorrect && q.options.length > 0) q.options[0].is_correct = true;
+  renderQuizEditor();
+}
+async function saveQuiz() {
+  if (!editingQuizLessonId) return;
+  for (let i = 0; i < quizQuestions.length; i++) {
+    const q = quizQuestions[i];
+    if (!q.question.trim()) return showMessage(`Pergunta ${i + 1} estÃ¡ vazia.`, 'error');
+    if (q.options.some(o => !o.text.trim())) return showMessage(`Todas as opÃ§Ãµes da pergunta ${i + 1} precisam de texto.`, 'error');
+    if (!q.options.some(o => o.is_correct)) return showMessage(`Marque a correta da pergunta ${i + 1}.`, 'error');
+  }
+  try {
+    await db.from('academy_quizzes').delete().eq('lesson_id', editingQuizLessonId);
+    for (let i = 0; i < quizQuestions.length; i++) {
+      const q = quizQuestions[i];
+      const { data: created, error } = await db.from('academy_quizzes').insert({ lesson_id: editingQuizLessonId, question: q.question.trim(), order_index: i }).select().single();
+      if (error) throw error;
+      for (let j = 0; j < q.options.length; j++) {
+        const o = q.options[j];
+        const { error: oErr } = await db.from('academy_quiz_options').insert({ quiz_id: created.id, option_text: o.text.trim(), is_correct: !!o.is_correct, order_index: j });
+        if (oErr) throw oErr;
+      }
+    }
+    showMessage('Quiz salvo!', 'success');
+    closeQuizEditor();
+    await loadEditorModules();
+  } catch (e) { showMessage('Erro: ' + e.message, 'error'); }
+}
+
+// MATRÃCULAS
+let enrollTargetCourseId = null;
+async function openEnrollModal(courseId) {
+  enrollTargetCourseId = courseId;
+  const course = allCourses.find(c => c.id === courseId);
+  document.getElementById('enroll-subtitle').textContent = course ? course.title : '';
+  await loadEnrollUserSelect();
+  await loadEnrollList();
+  document.getElementById('enroll-modal').classList.remove('hidden');
+}
+function openEnrollModalFromEditor() { openEnrollModal(currentEditorCourseId); }
+function closeEnrollModal() { document.getElementById('enroll-modal').classList.add('hidden'); enrollTargetCourseId = null; }
+async function loadEnrollUserSelect() {
+  const sel = document.getElementById('enroll-user-select');
+  sel.innerHTML = '<option>Carregandoâ€¦</option>';
+  try {
+    const { data, error } = await db.from('profiles')
+      .select('id, full_name, email, sector, role')
+      .order('full_name');
+
+    if (error) {
+      console.error('Erro ao carregar perfis:', error);
+      sel.innerHTML = `<option value="">Erro: ${error.message}</option>`;
+      return;
+    }
+
+    const allowedRoles = ['employee', 'colaborador', 'supervisor'];
+    const filtered = (data || []).filter(p =>
+      allowedRoles.includes((p.role || '').toLowerCase())
+    );
+
+    if (filtered.length === 0) {
+      sel.innerHTML = '<option value="">Nenhum colaborador cadastrado</option>';
+      return;
+    }
+
+    sel.innerHTML = '<option value="">â€” Selecione â€”</option>' +
+      filtered.map(p =>
+        `<option value="${p.id}">${escapeHtml(p.full_name || p.email)}${p.sector ? ' â€” ' + escapeHtml(p.sector) : ''}</option>`
+      ).join('');
+  } catch (e) {
+    console.error('Erro loadEnrollUserSelect:', e);
+    sel.innerHTML = `<option value="">Erro: ${e.message}</option>`;
+  }
+}
+async function loadEnrollList() {
+  const container = document.getElementById('enroll-list');
+  container.innerHTML = 'Carregandoâ€¦';
+
+  try {
+    const { data: enrolls, error } = await db
+      .from('academy_enrollments')
+      .select('*')
+      .eq('course_id', enrollTargetCourseId);
+
+    if (error) throw error;
+    const list = enrolls || [];
+
+    if (list.length === 0) {
+      container.innerHTML = '<div style="padding: 16px; text-align: center; color: var(--texto-soft); font-size: 0.85rem;">Nenhum aluno matriculado.</div>';
+      return;
+    }
+
+    const userIds = list.map(e => e.user_id);
+    const { data: profiles } = await db
+      .from('profiles')
+      .select('id, full_name, email, sector')
+      .in('id', userIds);
+
+    const profileMap = {};
+    (profiles || []).forEach(p => { profileMap[p.id] = p; });
+
+    container.innerHTML = list.map(e => {
+      const profile = profileMap[e.user_id];
+      const statusTag = e.status === 'completed'
+        ? 'âœ… ConcluÃ­do'
+        : 'â³ Em andamento';
+      return `
+        <div style="padding: 12px; border-bottom: 1px solid var(--cinza-borda); display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
+          <div style="min-width: 0; flex: 1;">
+            <div style="font-weight: 700; font-size: 0.9rem;">${escapeHtml(profile?.full_name || profile?.email || 'Aluno')}</div>
+            <div style="font-size: 0.75rem; color: var(--texto-soft);">
+              ${profile?.sector ? escapeHtml(profile.sector) + ' â€¢ ' : ''}
+              Desde ${new Date(e.assigned_at).toLocaleDateString('pt-BR')} â€¢ ${statusTag}
+            </div>
+          </div>
+          <button class="btn-danger btn-small" onclick="unenrollUser('${e.id}')">Remover</button>
+        </div>
+      `;
+    }).join('');
+  } catch (e) {
+    console.error('Erro loadEnrollList:', e);
+    container.innerHTML = `<div style="padding: 16px; color: var(--cde-vermelho);">Erro: ${escapeHtml(e.message)}</div>`;
+  }
+}
+async function enrollUser() {
+  const userId = document.getElementById('enroll-user-select').value;
+  if (!userId) return showMessage('Selecione um colaborador.', 'error');
+  try {
+    const { error } = await db.from('academy_enrollments').upsert({ user_id: userId, course_id: enrollTargetCourseId, assigned_by: currentUser.id, status: 'active' }, { onConflict: 'user_id,course_id' });
+    if (error) throw error;
+    showMessage('Colaborador matriculado!', 'success');
+    await loadEnrollList();
+  } catch (e) { showMessage('Erro: ' + e.message, 'error'); }
+}
+async function unenrollUser(enrollId) {
+  if (!confirm('Remover a matrÃ­cula?')) return;
+  try {
+    const { error } = await db.from('academy_enrollments').delete().eq('id', enrollId);
+    if (error) throw error;
+    showMessage('MatrÃ­cula removida.', 'success');
+    await loadEnrollList();
+  } catch (e) { showMessage('Erro: ' + e.message, 'error'); }
+}
+
+// ==================== ANALYTICS ====================
+async function renderAnalyticsView() {
+  const main = document.getElementById('main-content');
+  main.innerHTML = '<div class="state-box">Carregando analyticsâ€¦</div>';
+
+  try {
+    const [coursesRes, enrollsRes, completionsRes, viewsRes, profilesRes, lessonsRes] = await Promise.all([
+      db.from('academy_courses').select('*'),
+      db.from('academy_enrollments').select('*'),
+      db.from('academy_completions').select('*'),
+      db.from('academy_lesson_views').select('*'),
+      db.from('profiles').select('id, full_name, role, sector'),
+      db.from('academy_lessons').select('id, title, module_id')
+    ]);
+
+    const courses = coursesRes.data || [];
+    const enrolls = enrollsRes.data || [];
+    const completions = completionsRes.data || [];
+    const views = viewsRes.data || [];
+    const profiles = profilesRes.data || [];
+    const lessons = lessonsRes.data || [];
+
+    const profileMap = {};
+    profiles.forEach(p => { profileMap[p.id] = p; });
+
+    const courseMap = {};
+    courses.forEach(c => { courseMap[c.id] = c; });
+
+    const lessonMap = {};
+    lessons.forEach(l => { lessonMap[l.id] = l; });
+
+    const totalAlunos = new Set(enrolls.map(e => e.user_id)).size;
+    const totalMatriculas = enrolls.length;
+    const totalConclusoes = completions.length;
+    const taxaGlobal = totalMatriculas > 0 ? Math.round((totalConclusoes / totalMatriculas) * 100) : 0;
+    const totalTempoSegundos = views.reduce((s, v) => s + (v.time_spent_seconds || 0), 0);
+
+    const cursoStats = courses.map(c => {
+      const enr = enrolls.filter(e => e.course_id === c.id);
+      const comp = completions.filter(x => x.course_id === c.id);
+      const viewsCurso = views.filter(v => v.course_id === c.id);
+      const tempoTotal = viewsCurso.reduce((s, v) => s + (v.time_spent_seconds || 0), 0);
+      const taxa = enr.length > 0 ? Math.round((comp.length / enr.length) * 100) : 0;
+      return { course: c, alunos: enr.length, conclusoes: comp.length, taxa, tempoTotal };
+    }).sort((a, b) => b.alunos - a.alunos);
+
+    const alunoStats = {};
+    views.forEach(v => {
+      if (!alunoStats[v.user_id]) {
+        alunoStats[v.user_id] = {
+          name: profileMap[v.user_id]?.full_name || 'â€”',
+          lessons: new Set(),
+          time: 0
+        };
+      }
+      alunoStats[v.user_id].lessons.add(v.lesson_id);
+      alunoStats[v.user_id].time += (v.time_spent_seconds || 0);
+    });
+    const topAlunos = Object.values(alunoStats).sort((a, b) => b.time - a.time).slice(0, 10);
+
+    const aulaStats = {};
+    views.forEach(v => {
+      const key = v.lesson_id;
+      if (!aulaStats[key]) {
+        aulaStats[key] = {
+          title: lessonMap[key]?.title || 'â€”',
+          course: courseMap[v.course_id]?.title || 'â€”',
+          views: 0,
+          time: 0
+        };
+      }
+      aulaStats[key].views++;
+      aulaStats[key].time += (v.time_spent_seconds || 0);
+    });
+    const topAulas = Object.values(aulaStats).sort((a, b) => b.views - a.views).slice(0, 10);
+
+    const badgeTaxa = (t) => {
+      if (t >= 80) return `<span class="badge-pill alta">${t}%</span>`;
+      if (t >= 50) return `<span class="badge-pill media">${t}%</span>`;
+      if (t > 0) return `<span class="badge-pill baixa">${t}%</span>`;
+      return `<span class="badge-pill none">â€”</span>`;
+    };
+
+    main.innerHTML = `
+      <div class="section-header">
+        <h2>ðŸ“ˆ Analytics</h2>
+        <span class="section-sub">VisÃ£o geral do engajamento na Academy</span>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-icon">ðŸ‘¥</div>
+          <div class="stat-value">${totalAlunos}</div>
+          <div class="stat-label">Alunos ativos</div>
+          <div class="stat-hint">${totalMatriculas} matrÃ­culas no total</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">ðŸŽ“</div>
+          <div class="stat-value" style="color: var(--verde);">${totalConclusoes}</div>
+          <div class="stat-label">ConclusÃµes</div>
+          <div class="stat-hint">Certificados emitidos</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">ðŸ“Š</div>
+          <div class="stat-value" style="color: var(--cde-laranja-escuro);">${taxaGlobal}%</div>
+          <div class="stat-label">Taxa de conclusÃ£o</div>
+          <div class="stat-hint">ConclusÃµes / matrÃ­culas</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">â±</div>
+          <div class="stat-value" style="color: var(--roxo-medio);">${Math.round(totalTempoSegundos / 60)}min</div>
+          <div class="stat-label">Tempo total assistido</div>
+          <div class="stat-hint">Somando todas as aulas</div>
+        </div>
+      </div>
+
+      <div style="background: var(--branco); border-radius:14px; padding:22px; border:1px solid var(--cinza-borda); margin-bottom: 20px; overflow-x: auto;">
+        <h3 style="font-size: 1rem; margin-bottom: 14px;">ðŸ“š Por curso</h3>
+        ${cursoStats.length === 0 ? '<p style="color: var(--texto-soft);">Sem cursos.</p>' : `
+          <table class="analytics-table">
+            <thead><tr>
+              <th>Curso</th>
+              <th style="text-align:center;">Alunos</th>
+              <th style="text-align:center;">ConclusÃµes</th>
+              <th style="text-align:center;">Taxa</th>
+              <th style="text-align:right;">Tempo total</th>
+            </tr></thead>
+            <tbody>
+              ${cursoStats.map(s => `
+                <tr>
+                  <td style="font-weight: 600;">${escapeHtml(s.course.title)}</td>
+                  <td style="text-align:center;">${s.alunos}</td>
+                  <td style="text-align:center;">${s.conclusoes}</td>
+                  <td style="text-align:center;">${badgeTaxa(s.taxa)}</td>
+                  <td style="text-align:right; font-weight: 600;">${Math.round(s.tempoTotal / 60)}min</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `}
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 20px; margin-bottom: 20px;">
+        <div style="background: var(--branco); border-radius:14px; padding:22px; border:1px solid var(--cinza-borda);">
+          <h3 style="font-size: 1rem; margin-bottom: 14px;">ðŸ† Alunos mais engajados</h3>
+          ${topAlunos.length === 0 ? '<p style="color: var(--texto-soft); font-size: 0.88rem;">Sem dados ainda.</p>' : topAlunos.map((a, i) => `
+            <div style="padding: 10px 0; border-bottom: 1px solid var(--cinza-borda); display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+              <div style="display: flex; align-items: center; gap: 10px; min-width: 0;">
+                <span style="font-weight: 800; color: ${i === 0 ? 'var(--amarelo)' : i === 1 ? 'var(--texto-soft)' : i === 2 ? 'var(--cde-laranja-escuro)' : 'var(--texto-mute)'};">${i + 1}Âº</span>
+                <span style="font-weight: 600; font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(a.name)}</span>
+              </div>
+              <div style="text-align: right; flex-shrink: 0;">
+                <div style="font-weight: 700; font-size: 0.85rem; color: var(--cde-laranja-escuro);">${Math.round(a.time / 60)}min</div>
+                <div style="font-size: 0.72rem; color: var(--texto-soft);">${a.lessons.size} aula${a.lessons.size === 1 ? '' : 's'}</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div style="background: var(--branco); border-radius:14px; padding:22px; border:1px solid var(--cinza-borda);">
+          <h3 style="font-size: 1rem; margin-bottom: 14px;">ðŸ”¥ Aulas mais acessadas</h3>
+          ${topAulas.length === 0 ? '<p style="color: var(--texto-soft); font-size: 0.88rem;">Sem dados ainda.</p>' : topAulas.map((a, i) => `
+            <div style="padding: 10px 0; border-bottom: 1px solid var(--cinza-borda); display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+              <div style="min-width: 0; flex: 1;">
+                <div style="font-weight: 600; font-size: 0.88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(a.title)}</div>
+                <div style="font-size: 0.72rem; color: var(--texto-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(a.course)}</div>
+              </div>
+              <div style="text-align: right; flex-shrink: 0;">
+                <div style="font-weight: 700; font-size: 0.85rem; color: var(--azul);">${a.views} view${a.views === 1 ? '' : 's'}</div>
+                <div style="font-size: 0.72rem; color: var(--texto-soft);">${Math.round(a.time / 60)}min</div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  } catch (e) {
+    console.error('Erro renderAnalyticsView:', e);
+    main.innerHTML = `<div class="state-box" style="color: var(--cde-vermelho);">Erro ao carregar analytics: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+// ==================================================================
+// ==================== DASHBOARD EXECUTIVO =========================
+// ==================================================================
+
+async function renderDashboard() {
+  const main = document.getElementById('main-content');
+  main.innerHTML = '<div class="state-box">Carregando dashboard executivoâ€¦</div>';
+
+  try {
+    const [coursesRes, enrollsRes, completionsRes, viewsRes, profilesRes, goalsRes, certsRes] = await Promise.all([
+      db.from('academy_courses').select('id, title, workload_hours, sector, is_published'),
+      db.from('academy_enrollments').select('user_id, course_id, status, assigned_at'),
+      db.from('academy_completions').select('user_id, course_id, completed_at'),
+      db.from('academy_lesson_views').select('user_id, lesson_id, time_spent_seconds, last_seen_at'),
+      db.from('profiles').select('id, full_name, email, role, sector, position, is_master'),
+      db.from('goals').select('user_id, max_points, goal_type').eq('goal_type', 'individual'),
+      db.from('certificates').select('user_id, points_awarded, status, submitted_at, validated_at')
+    ]);
+
+    const courses     = coursesRes.data || [];
+    const enrolls     = enrollsRes.data || [];
+    const completions = completionsRes.data || [];
+    const views       = viewsRes.data || [];
+    const profiles    = profilesRes.data || [];
+    const goals       = goalsRes.data || [];
+    const certsPdi    = certsRes.data || [];
+
+    const profileMap = {};
+    profiles.forEach(p => { profileMap[p.id] = p; });
+
+    const colaboradores = profiles.filter(p => {
+      const r = (p.role || '').toLowerCase();
+      return r === 'employee' || r === 'colaborador' || r === 'supervisor';
+    });
+
+    const ptsPorUser = {};
+    certsPdi.forEach(c => {
+      if (c.status === 'approved') ptsPorUser[c.user_id] = (ptsPorUser[c.user_id] || 0) + (c.points_awarded || 0);
+    });
+
+    const pontosTotais = Object.values(ptsPorUser).reduce((s, x) => s + x, 0);
+    const mediaPorPessoa = colaboradores.length > 0 ? Math.round(pontosTotais / colaboradores.length) : 0;
+
+    const usersComCertAprovado = new Set();
+    certsPdi.forEach(c => { if (c.status === 'approved') usersComCertAprovado.add(c.user_id); });
+    const taxaAdesao = colaboradores.length > 0 ? Math.round((usersComCertAprovado.size / colaboradores.length) * 100) : 0;
+
+    const courseMap = {};
+    courses.forEach(c => { courseMap[c.id] = c; });
+    let horasTreinamento = 0;
+    completions.forEach(c => {
+      const course = courseMap[c.course_id];
+      if (course) horasTreinamento += (course.workload_hours || 1);
+    });
+
+    const now = new Date();
+    const curQ = Math.floor(now.getMonth() / 3) + 1;
+    const curYear = now.getFullYear();
+    const prevQ = curQ === 1 ? 4 : curQ - 1;
+    const prevYear = curQ === 1 ? curYear - 1 : curYear;
+
+    const startOfQ = (q, y) => new Date(y, (q - 1) * 3, 1);
+    const endOfQ = (q, y) => new Date(y, q * 3, 0, 23, 59, 59);
+    const curStart = startOfQ(curQ, curYear);
+    const curEnd = now;
+    const prevStart = startOfQ(prevQ, prevYear);
+    const prevEnd = endOfQ(prevQ, prevYear);
+
+    let pontosCur = 0, pontosPrev = 0, certsCur = 0, certsPrev = 0;
+    certsPdi.forEach(c => {
+      if (c.status !== 'approved' || !c.validated_at) return;
+      const dt = new Date(c.validated_at);
+      if (dt >= curStart && dt <= curEnd) { pontosCur += c.points_awarded || 0; certsCur++; }
+      else if (dt >= prevStart && dt <= prevEnd) { pontosPrev += c.points_awarded || 0; certsPrev++; }
+    });
+
+    let cursosCur = 0, cursosPrev = 0;
+    completions.forEach(c => {
+      if (!c.completed_at) return;
+      const dt = new Date(c.completed_at);
+      if (dt >= curStart && dt <= curEnd) cursosCur++;
+      else if (dt >= prevStart && dt <= prevEnd) cursosPrev++;
+    });
+
+    const meses = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(curYear, now.getMonth() - i, 1);
+      meses.push({
+        label: d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''),
+        year: d.getFullYear(),
+        month: d.getMonth(),
+        pontos: 0,
+        cursos: 0
+      });
+    }
+    certsPdi.forEach(c => {
+      if (c.status !== 'approved' || !c.validated_at) return;
+      const dt = new Date(c.validated_at);
+      const m = meses.find(x => x.year === dt.getFullYear() && x.month === dt.getMonth());
+      if (m) m.pontos += c.points_awarded || 0;
+    });
+    completions.forEach(c => {
+      if (!c.completed_at) return;
+      const dt = new Date(c.completed_at);
+      const m = meses.find(x => x.year === dt.getFullYear() && x.month === dt.getMonth());
+      if (m) m.cursos++;
+    });
+
+    const normalizeSetor = (s) => {
+      if (!s) return null;
+      return String(s).toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+    };
+
+    const setoresDef = [
+      { key: 'COMERCIAL',      label: 'Comercial',      icon: 'ðŸ’¼', cls: 'comercial' },
+      { key: 'PRODUCAO',       label: 'ProduÃ§Ã£o',       icon: 'ðŸ­', cls: 'producao' },
+      { key: 'ADMINISTRATIVO', label: 'Administrativo', icon: 'ðŸ¢', cls: 'administrativo' }
+    ];
+
+    setoresDef.forEach(s => {
+      const colabsSetor = colaboradores.filter(p => normalizeSetor(p.sector) === s.key);
+      s.total = colabsSetor.length;
+      s.pontos = colabsSetor.reduce((sum, p) => sum + (ptsPorUser[p.id] || 0), 0);
+      const comCert = colabsSetor.filter(p => usersComCertAprovado.has(p.id)).length;
+      s.adesao = s.total > 0 ? Math.round((comCert / s.total) * 100) : 0;
+    });
+
+    setoresDef.sort((a, b) => b.pontos - a.pontos);
+    const maxPontosSetor = Math.max(...setoresDef.map(s => s.pontos), 1);
+
+    const ranking = colaboradores.map(p => {
+      const setorData = setoresDef.find(s => s.key === normalizeSetor(p.sector));
+      return {
+        id: p.id,
+        nome: p.full_name || p.email,
+        cargo: p.position || '',
+        setorLabel: setorData ? setorData.label : (p.sector || 'â€”'),
+        pontos: ptsPorUser[p.id] || 0
+      };
+    }).sort((a, b) => b.pontos - a.pontos).slice(0, 5);
+
+    const cursosStats = courses.map(c => {
+      const enr = enrolls.filter(e => e.course_id === c.id).length;
+      const comp = completions.filter(x => x.course_id === c.id).length;
+      const taxa = enr > 0 ? Math.round((comp / enr) * 100) : 0;
+      return { curso: c, matriculas: enr, conclusoes: comp, taxa };
+    }).filter(x => x.matriculas > 0).sort((a, b) => b.taxa - a.taxa).slice(0, 4);
+
+    const alertas = [];
+    const agora = Date.now();
+    const pendentesAntigos = certsPdi.filter(c => {
+      if (c.status !== 'pending' || !c.submitted_at) return false;
+      const dias = (agora - new Date(c.submitted_at).getTime()) / (1000 * 60 * 60 * 24);
+      return dias > 15;
+    }).length;
+    if (pendentesAntigos > 0) {
+      alertas.push({
+        tipo: 'warn', icon: 'â°',
+        titulo: pendentesAntigos + ' certificado' + (pendentesAntigos === 1 ? '' : 's') + ' pendente' + (pendentesAntigos === 1 ? '' : 's') + ' hÃ¡ mais de 15 dias',
+        desc: 'Aguardando validaÃ§Ã£o de supervisores'
+      });
+    }
+
+    const usersComMeta = new Set(goals.map(g => g.user_id));
+    const semMeta = colaboradores.filter(p => !usersComMeta.has(p.id)).length;
+    if (semMeta > 0) {
+      alertas.push({
+        tipo: 'info', icon: 'ðŸ‘¤',
+        titulo: semMeta + ' colaborador' + (semMeta === 1 ? '' : 'es') + ' sem metas cadastradas',
+        desc: 'Podem estar fora do PDI por engano'
+      });
+    }
+
+    const piorSetor = [...setoresDef].sort((a, b) => a.adesao - b.adesao)[0];
+    if (piorSetor && piorSetor.adesao < 50 && piorSetor.total > 0) {
+      alertas.push({
+        tipo: 'alert', icon: 'ðŸ“‰',
+        titulo: 'Setor ' + piorSetor.label + ' com ' + piorSetor.adesao + '% de adesÃ£o',
+        desc: 'Considere campanha de incentivo'
+      });
+    }
+    if (alertas.length === 0) {
+      alertas.push({ tipo: 'ok', icon: 'âœ…', titulo: 'Nenhum ponto crÃ­tico identificado', desc: 'Todos os indicadores estÃ£o saudÃ¡veis' });
+    }
+
+    const destaques = [];
+    if (setoresDef[0] && setoresDef[0].pontos > 0) {
+      destaques.push({ tipo: 'ok', icon: 'ðŸ†', titulo: 'Setor ' + setoresDef[0].label + ' lidera com ' + setoresDef[0].pontos + ' pts', desc: setoresDef[0].adesao + '% de adesÃ£o' });
+    }
+    if (ranking[0] && ranking[0].pontos > 0) {
+      destaques.push({ tipo: 'ok', icon: 'â­', titulo: ranking[0].nome + ' Ã© o destaque do trimestre', desc: ranking[0].pontos + ' pontos acumulados' });
+    }
+    if (cursosStats[0] && cursosStats[0].taxa > 70) {
+      destaques.push({ tipo: 'ok', icon: 'ðŸŽ“', titulo: '"' + cursosStats[0].curso.title + '" com ' + cursosStats[0].taxa + '% de conclusÃ£o', desc: cursosStats[0].conclusoes + ' de ' + cursosStats[0].matriculas + ' alunos' });
+    }
+    if (destaques.length === 0) {
+      destaques.push({ tipo: 'info', icon: 'ðŸ“Š', titulo: 'Comece a incentivar o uso do PDI', desc: 'Ainda sem dados suficientes para destaques' });
+    }
+
+    const trend = (cur, prev) => {
+      if (prev === 0 && cur === 0) return { cls: 'flat', txt: 'â†’ estÃ¡vel' };
+      if (prev === 0) return { cls: 'up', txt: 'â†‘ novo' };
+      const diff = cur - prev;
+      const pct = Math.round((diff / prev) * 100);
+      if (diff > 0) return { cls: 'up', txt: 'â†‘ ' + pct + '% vs. tri anterior' };
+      if (diff < 0) return { cls: 'down', txt: 'â†“ ' + Math.abs(pct) + '% vs. tri anterior' };
+      return { cls: 'flat', txt: 'â†’ estÃ¡vel' };
+    };
+    const tPontos = trend(pontosCur, pontosPrev);
+    const tCursos = trend(cursosCur, cursosPrev);
+
+    const trimLabel = curQ + 'Âº TRI ' + curYear;
+
+    main.innerHTML = `
+      <div class="dash-header">
+        <div>
+          <h1>ðŸ“Š Dashboard Executivo</h1>
+          <p>VisÃ£o estratÃ©gica do PDI + CDE Academy</p>
+        </div>
+        <div class="dash-periodo">ðŸ“… ${trimLabel}</div>
+      </div>
+
+      <div class="stats-grid">
+        ${renderDashKpi('ðŸ‘¥', colaboradores.length, 'Colaboradores ativos', null)}
+        ${renderDashKpi('ðŸŽ¯', taxaAdesao + '%', 'Taxa de adesÃ£o', tPontos)}
+        ${renderDashKpi('â­', pontosTotais.toLocaleString('pt-BR'), 'Pontos totais', tPontos)}
+        ${renderDashKpi('ðŸ“ˆ', mediaPorPessoa, 'MÃ©dia por pessoa', null)}
+        ${renderDashKpi('ðŸŽ“', horasTreinamento + 'h', 'Horas de treinamento', tCursos)}
+      </div>
+
+      <div class="dash-row-2">
+        <div class="card">
+          <h2>ðŸ“ˆ EvoluÃ§Ã£o mensal <span class="badge-pill none" style="margin-left:auto; font-size:0.7rem;">Ãšltimos 6 meses</span></h2>
+          <div style="position: relative; height: 240px;"><canvas id="dashEvolucaoChart"></canvas></div>
+        </div>
+
+        <div class="card">
+          <h2>ðŸŽ¯ Comparativo de setores</h2>
+          ${setoresDef.map((s, i) => {
+            const posClasses = ['gold', 'silver', 'bronze'];
+            const barWidth = Math.round((s.pontos / maxPontosSetor) * 100);
+            return `
+              <div class="dash-setor-row">
+                <div class="dash-setor-pos ${posClasses[i] || ''}">${i + 1}</div>
+                <div class="dash-setor-icon ${s.cls}">${s.icon}</div>
+                <div class="dash-setor-info">
+                  <div class="dash-setor-nome">${s.label}</div>
+                  <div class="dash-setor-meta">${s.total} colab. Â· ${s.adesao}% adesÃ£o</div>
+                  <div class="dash-setor-bar"><div class="dash-setor-bar-fill ${s.cls}" style="width: ${barWidth}%"></div></div>
+                </div>
+                <div class="dash-setor-pontos">${s.pontos} pts</div>
+              </div>
+            `;
+          }).join('')}
+          ${setoresDef[0] && setoresDef[0].pontos > 0 ? `
+            <div class="dash-insight">
+              ðŸ’¡ O setor <strong>${setoresDef[0].label}</strong> concentra <strong>${pontosTotais > 0 ? Math.round((setoresDef[0].pontos / pontosTotais) * 100) : 0}%</strong> dos pontos da empresa.
+            </div>
+          ` : ''}
+        </div>
+      </div>
+
+      <div class="dash-row-half">
+        <div class="card">
+          <h2>ðŸ† Top 5 colaboradores <span class="badge-pill none" style="margin-left:auto; font-size:0.7rem;">${trimLabel}</span></h2>
+          ${ranking.length === 0 ? '<p style="color:#6D6E71; font-size:0.88rem;">Nenhum dado disponÃ­vel ainda.</p>' : ranking.map((r, i) => {
+            const medals = ['ðŸ¥‡', 'ðŸ¥ˆ', 'ðŸ¥‰', '4', '5'];
+            const iniciais = r.nome.trim().split(/\s+/).map(x => x[0]).slice(0, 2).join('').toUpperCase();
+            return `
+              <div class="dash-top-item">
+                <div class="dash-top-medal">${medals[i]}</div>
+                <div class="dash-top-avatar">${iniciais}</div>
+                <div class="dash-top-info">
+                  <div class="dash-top-nome">${escapeHtml(r.nome)}</div>
+                  <div class="dash-top-setor">${escapeHtml(r.setorLabel)}${r.cargo ? ' Â· ' + escapeHtml(r.cargo) : ''}</div>
+                </div>
+                <div class="dash-top-pts">${r.pontos} pts</div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+
+        <div class="card">
+          <h2>ðŸ“š Top cursos da Academy <span class="badge-pill none" style="margin-left:auto; font-size:0.7rem;">Por conclusÃ£o</span></h2>
+          ${cursosStats.length === 0 ? '<p style="color:#6D6E71; font-size:0.88rem;">Nenhum curso com matrÃ­culas ainda.</p>' : cursosStats.map(cs => `
+            <div class="dash-curso-row">
+              <div class="dash-curso-header">
+                <span class="dash-curso-nome">${escapeHtml(cs.curso.title)}</span>
+                <span class="dash-curso-pct">${cs.taxa}%</span>
+              </div>
+              <div class="dash-curso-sub">${cs.conclusoes} de ${cs.matriculas} alunos concluÃ­ram</div>
+              <div class="dash-curso-bar"><div class="dash-curso-bar-fill" style="width: ${cs.taxa}%"></div></div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+
+      <div class="dash-row-half">
+        <div class="card">
+          <h2>âš ï¸ Pontos de atenÃ§Ã£o</h2>
+          ${alertas.map(a => renderDashAlert(a)).join('')}
+        </div>
+        <div class="card">
+          <h2>âœ… Destaques positivos</h2>
+          ${destaques.map(a => renderDashAlert(a)).join('')}
+        </div>
+      </div>
+    `;
+
+    setTimeout(() => initDashEvolucaoChart(meses), 100);
+
+  } catch (e) {
+    console.error('Erro renderDashboard:', e);
+    main.innerHTML = '<div class="state-box" style="color: #C8102E;">Erro ao carregar dashboard: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+// ==================== HELPERS DO DASHBOARD ====================
+
+function renderDashKpi(icon, value, label, trend) {
+  let trendHtml = '';
+  if (trend && trend.cls) {
+    const bg = trend.cls === 'up' ? '#E6F7EE' : trend.cls === 'down' ? '#FDE8EB' : '#F0F1F3';
+    const fg = trend.cls === 'up' ? '#158A49' : trend.cls === 'down' ? '#C8102E' : '#6D6E71';
+    trendHtml = `<div style="margin-top: 8px; font-size: 0.75rem; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 20px; background: ${bg}; color: ${fg};">${trend.txt}</div>`;
+  }
+  return `
+    <div class="stat-card">
+      <div class="stat-icon">${icon}</div>
+      <div class="stat-value">${value}</div>
+      <div class="stat-label">${label}</div>
+      ${trendHtml}
+    </div>
+  `;
+}
+
+function renderDashAlert(a) {
+  return `
+    <div class="dash-alert">
+      <div class="dash-alert-icon ${a.tipo}">${a.icon}</div>
+      <div class="dash-alert-info">
+        <div class="dash-alert-titulo">${escapeHtml(a.titulo)}</div>
+        <div class="dash-alert-desc">${escapeHtml(a.desc)}</div>
+      </div>
+    </div>
+  `;
+}
+
+function initDashEvolucaoChart(meses) {
+  if (typeof Chart === 'undefined') {
+    console.warn('Chart.js nÃ£o carregado.');
+    return;
+  }
+  const canvas = document.getElementById('dashEvolucaoChart');
+  if (!canvas) return;
+
+  if (dashboardChartInstance) {
+    try { dashboardChartInstance.destroy(); } catch (e) {}
+  }
+
+  const ctx = canvas.getContext('2d');
+  dashboardChartInstance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: meses.map(m => m.label),
+      datasets: [
+        {
+          label: 'Pontos acumulados',
+          data: meses.map(m => m.pontos),
+          borderColor: '#E87722',
+          backgroundColor: 'rgba(232, 119, 34, 0.08)',
+          tension: 0.4,
+          fill: true,
+          borderWidth: 3,
+          pointRadius: 4,
+          pointBackgroundColor: '#E87722',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2
+        },
+        {
+          label: 'Cursos concluÃ­dos',
+          data: meses.map(m => m.cursos),
+          borderColor: '#7C3AED',
+          backgroundColor: 'rgba(124, 58, 237, 0.05)',
+          tension: 0.4,
+          fill: true,
+          borderWidth: 3,
+          pointRadius: 4,
+          pointBackgroundColor: '#7C3AED',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: {
+            usePointStyle: true,
+            padding: 16,
+            font: { size: 11, weight: '600' }
+          }
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          grid: { color: '#F0F1F3' },
+          ticks: { font: { size: 10 }, color: '#6D6E71' }
+        },
+        x: {
+          grid: { display: false },
+          ticks: { font: { size: 10 }, color: '#6D6E71' }
+        }
+      }
+    }
+  });
+}
+
+// ==================== NOTIFICAÃ‡Ã•ES ====================
+let notificationsList = [];
+let unreadNotifications = 0;
+
+async function loadNotifications() {
+  try {
+    const { data, error } = await db
+      .from('academy_notifications')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50);
+    if (error) throw error;
+    notificationsList = data || [];
+
+    const { data: reads } = await db
+      .from('academy_notification_reads')
+      .select('notification_id')
+      .eq('user_id', currentUser.id);
+    const readSet = new Set((reads || []).map(r => r.notification_id));
+
+    unreadNotifications = notificationsList.filter(n => !readSet.has(n.id)).length;
+    updateNotifBadge();
+  } catch (e) {
+    console.error('Erro ao carregar notificaÃ§Ãµes:', e);
+  }
+}
+
+function updateNotifBadge() {
+  const badge = document.getElementById('notif-badge');
+  if (!badge) return;
+  if (unreadNotifications > 0) {
+    badge.textContent = unreadNotifications > 9 ? '9+' : String(unreadNotifications);
+    badge.classList.remove('hidden');
+  } else {
+    badge.classList.add('hidden');
+  }
+}
+
+async function openNotificationsModal() {
+  await loadNotifications();
+  renderNotificationsList();
+  const newBtn = document.getElementById('btn-new-notification');
+  if (canManage) newBtn.classList.remove('hidden');
+  else newBtn.classList.add('hidden');
+  document.getElementById('notifications-modal').classList.remove('hidden');
+  await markAllNotificationsRead();
+}
+
+function closeNotificationsModal() {
+  document.getElementById('notifications-modal').classList.add('hidden');
+}
+
+async function markAllNotificationsRead() {
+  try {
+    const { data: reads } = await db
+      .from('academy_notification_reads')
+      .select('notification_id')
+      .eq('user_id', currentUser.id);
+    const readSet = new Set((reads || []).map(r => r.notification_id));
+
+    const toInsert = notificationsList
+      .filter(n => !readSet.has(n.id))
+      .map(n => ({ notification_id: n.id, user_id: currentUser.id }));
+
+    if (toInsert.length > 0) {
+      await db.from('academy_notification_reads').insert(toInsert);
+      unreadNotifications = 0;
+      updateNotifBadge();
+    }
+  } catch (e) {
+    console.error('Erro ao marcar como lidas:', e);
+  }
+}
+
+function renderNotificationsList() {
+  const container = document.getElementById('notifications-list');
+  if (notificationsList.length === 0) {
+    container.innerHTML = '<div class="state-box"><span class="emoji">ðŸ”•</span>Nenhuma notificaÃ§Ã£o ainda.</div>';
+    return;
+  }
+  container.innerHTML = notificationsList.map(n => `
+    <div style="padding: 14px; background: var(--cinza-bg); border-radius: 10px; margin-bottom: 10px; border-left: 3px solid var(--cde-laranja);">
+      <div style="display: flex; justify-content: space-between; gap: 10px; margin-bottom: 6px; align-items: flex-start;">
+        <div style="font-weight: 700; font-size: 0.95rem;">${escapeHtml(n.title)}</div>
+        <div style="font-size: 0.72rem; color: var(--texto-soft); white-space: nowrap;">${new Date(n.created_at).toLocaleDateString('pt-BR')}</div>
+      </div>
+      <div style="font-size: 0.88rem; color: var(--texto-soft); line-height: 1.5; white-space: pre-wrap;">${escapeHtml(n.message)}</div>
+      <div style="font-size: 0.72rem; color: var(--texto-mute); margin-top: 8px;">Por ${escapeHtml(n.created_by_name || 'Equipe CDE')}</div>
+    </div>
+  `).join('');
+}
+
+function openNewNotificationForm() {
+  document.getElementById('notif-title').value = '';
+  document.getElementById('notif-message').value = '';
+  document.getElementById('new-notification-modal').classList.remove('hidden');
+}
+
+function closeNewNotificationForm() {
+  document.getElementById('new-notification-modal').classList.add('hidden');
+}
+
+async function sendNotification() {
+  const title = document.getElementById('notif-title').value.trim();
+  const message = document.getElementById('notif-message').value.trim();
+  if (!title) return showMessage('TÃ­tulo obrigatÃ³rio.', 'error');
+  if (!message) return showMessage('Mensagem obrigatÃ³ria.', 'error');
+
+  try {
+    const { error } = await db.from('academy_notifications').insert({
+      title,
+      message,
+      created_by: currentUser.id,
+      created_by_name: currentProfile.full_name || currentUser.email
+    });
+    if (error) throw error;
+    showMessage('NotificaÃ§Ã£o enviada para todos! ðŸ“¢', 'success');
+    closeNewNotificationForm();
+    await loadNotifications();
+    renderNotificationsList();
+  } catch (e) {
+    showMessage('Erro: ' + e.message, 'error');
+  }
+}
+
+// ==================== LOJA DE PRÃŠMIOS ====================
+let prizesCache = [];
+let editingPrizeId = null;
+let editingPrizeImageUrl = null;
+let redeemTargetPrize = null;
+let redeemUserBalance = null;
+
+async function renderPrizesView() {
+  const main = document.getElementById('main-content');
+  main.innerHTML = '<div class="state-box">Carregando prÃªmiosâ€¦</div>';
+
+  try {
+    const [prizesRes, myBalance, myRedemptionsRes] = await Promise.all([
+      db.from('academy_prizes').select('*').order('points_cost', { ascending: true }),
+      getUserPointsBalance(currentUser.id),
+      db.from('academy_redemptions').select('*').eq('user_id', currentUser.id).order('created_at', { ascending: false })
+    ]);
+
+    const allPrizes = prizesRes.data || [];
+    prizesCache = canManage ? allPrizes : allPrizes.filter(p => p.is_active);
+    const myRedemptions = myRedemptionsRes.data || [];
+
+    const kpi = (icon, value, label, color) => `
+      <div class="stat-card">
+        <div class="stat-icon">${icon}</div>
+        <div class="stat-value" ${color ? `style="color:${color}"` : ''}>${value}</div>
+        <div class="stat-label">${label}</div>
+      </div>`;
+
+    const prizeCard = (p) => {
+      const coverStyle = p.image_url ? `background-image: url('${escapeHtml(p.image_url)}'); background-size: cover; background-position: center;` : '';
+      const pode = myBalance.disponivel >= p.points_cost;
+      const semEstoque = p.stock !== null && p.stock <= 0;
+      const inativo = p.is_active === false;
+      const disabledLabel = semEstoque ? 'Sem estoque' : inativo ? 'Inativo' : !pode ? 'Saldo insuficiente' : null;
+
+      const adminBtns = canManage ? `
+        <div style="display:flex; gap:6px; margin-top:10px; flex-wrap:wrap;">
+          <button class="btn-secondary btn-small" onclick="event.stopPropagation();openPrizeForm('${p.id}')">âœï¸ Editar</button>
+          <button class="btn-danger btn-small" onclick="event.stopPropagation();deletePrize('${p.id}')">ðŸ—‘</button>
+        </div>` : '';
+
+      const actionBtn = canManage
+        ? `<button class="btn-primary" style="width:100%; margin-top:10px; padding:10px;" onclick="openRedeemModal('${p.id}')" ${semEstoque || inativo ? 'disabled' : ''}>
+             ðŸŽ Resgatar para colaborador
+           </button>`
+        : `<div style="margin-top:10px; padding:10px; text-align:center; font-size:0.78rem; font-weight:700; border-radius:8px;
+             background:${disabledLabel ? 'var(--cinza-bg)' : 'var(--verde-bg)'};
+             color:${disabledLabel ? 'var(--texto-soft)' : 'var(--verde)'};">
+             ${disabledLabel ? disabledLabel : 'âœ… VocÃª jÃ¡ pode resgatar!'}
+           </div>`;
+
+      return `
+        <div class="course-card" style="cursor:default; ${inativo ? 'opacity:0.55;' : ''}">
+          <div class="course-cover" style="${coverStyle}">
+            ${!p.image_url ? 'ðŸŽ' : ''}
+            <span class="course-badge" style="background: var(--cde-laranja); color:#fff;">â­ ${p.points_cost} pts</span>
+            ${semEstoque ? '<span class="course-badge" style="background:#FDE8EB; color:var(--cde-vermelho); top:auto; bottom:12px;">Sem estoque</span>' : ''}
+          </div>
+          <div class="course-body">
+            <h3>${escapeHtml(p.name)}</h3>
+            <p>${escapeHtml(p.description || 'Sem descriÃ§Ã£o.')}</p>
+            <div class="course-meta">
+              ${p.stock !== null ? `<span class="tag">ðŸ“¦ ${p.stock} disponÃ­ve${p.stock === 1 ? 'l' : 'is'}</span>` : '<span class="tag">â™¾ï¸ Estoque ilimitado</span>'}
+            </div>
+            ${actionBtn}
+            ${adminBtns}
+          </div>
+        </div>`;
+    };
+
+    main.innerHTML = `
+      <div class="section-header">
+        <h2>ðŸ† Loja de PrÃªmios</h2>
+        <span class="section-sub">Troque seus pontos por recompensas</span>
+        ${canManage ? `<div class="header-actions"><button class="btn-primary" onclick="openPrizeForm()">+ Novo PrÃªmio</button></div>` : ''}
+      </div>
+
+      <div class="stats-grid">
+        ${kpi('ðŸ’Ž', myBalance.disponivel, 'Meus pontos disponÃ­veis', 'var(--cde-laranja-escuro)')}
+        ${kpi('â­', myBalance.ganhoTotal, 'Pontos acumulados', 'var(--roxo-medio)')}
+        ${kpi('ðŸŽ', myBalance.resgates, 'Pontos resgatados', 'var(--cde-vermelho)')}
+        ${kpi('ðŸ“œ', myRedemptions.length, 'PrÃªmios recebidos', 'var(--verde)')}
+      </div>
+
+      <div class="section-header" style="margin-top: 8px;">
+        <h2 style="font-size: 1.1rem;">ðŸŽ PrÃªmios disponÃ­veis</h2>
+      </div>
+      ${prizesCache.length === 0
+        ? renderEmpty('ðŸŽ', canManage ? 'Nenhum prÃªmio cadastrado. Clique em "+ Novo PrÃªmio".' : 'Nenhum prÃªmio disponÃ­vel no momento.')
+        : `<div class="courses-grid">${prizesCache.map(prizeCard).join('')}</div>`}
+
+      ${myRedemptions.length > 0 ? `
+        <div class="section-header" style="margin-top: 20px;">
+          <h2 style="font-size: 1.1rem;">ðŸ“œ Meus resgates</h2>
+        </div>
+        <div style="background: var(--branco); border-radius:14px; padding:20px; border:1px solid var(--cinza-borda);">
+          ${myRedemptions.map(r => `
+            <div style="padding: 12px 0; border-bottom: 1px solid var(--cinza-borda); display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+              <div style="flex:1; min-width:180px;">
+                <div style="font-weight:700; font-size:0.9rem;">${escapeHtml(r.prize_name)}</div>
+                <div style="font-size:0.75rem; color:var(--texto-soft); margin-top:2px;">
+                  ${new Date(r.created_at).toLocaleDateString('pt-BR')} Â·
+                  ${r.status === 'delivered' ? 'âœ… Entregue' : r.status === 'cancelled' ? 'âŒ Cancelado' : 'â³ Pendente'}
+                </div>
+              </div>
+              <div style="font-weight:800; color: var(--cde-vermelho); align-self:center;">-${r.points_spent} pts</div>
+            </div>`).join('')}
+        </div>` : ''}
+    `;
+  } catch (e) {
+    console.error('Erro renderPrizesView:', e);
+    main.innerHTML = `<div class="state-box" style="color:var(--cde-vermelho);">Erro: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+// ---------- CRUD PRÃŠMIOS ----------
+function openPrizeForm(prizeId = null) {
+  editingPrizeId = prizeId;
+  editingPrizeImageUrl = null;
+  document.getElementById('pf-title-h').textContent = prizeId ? 'Editar PrÃªmio' : 'Novo PrÃªmio';
+  const name = document.getElementById('pf-name'), desc = document.getElementById('pf-desc'),
+        cost = document.getElementById('pf-cost'), stock = document.getElementById('pf-stock'),
+        active = document.getElementById('pf-active');
+  name.value = ''; desc.value = ''; cost.value = 50; stock.value = ''; active.checked = true;
+  document.getElementById('pf-image').value = '';
+  document.getElementById('pf-image-name').textContent = '';
+
+  if (prizeId) {
+    const p = prizesCache.find(x => x.id === prizeId);
+    if (p) {
+      name.value = p.name || '';
+      desc.value = p.description || '';
+      cost.value = p.points_cost || 50;
+      stock.value = p.stock === null ? '' : (p.stock || 0);
+      active.checked = p.is_active !== false;
+      editingPrizeImageUrl = p.image_url || null;
+      if (p.image_url) document.getElementById('pf-image-name').textContent = 'âœ“ Imagem atual mantida';
+    }
+  }
+  document.getElementById('prize-form-modal').classList.remove('hidden');
+}
+function closePrizeForm() {
+  document.getElementById('prize-form-modal').classList.add('hidden');
+  editingPrizeId = null; editingPrizeImageUrl = null;
+}
+function onPrizeImageChange(e) {
+  const f = e.target.files[0];
+  document.getElementById('pf-image-name').textContent = f ? 'âœ“ ' + f.name : '';
+}
+async function savePrize() {
+  const name = document.getElementById('pf-name').value.trim();
+  const description = document.getElementById('pf-desc').value.trim();
+  const points_cost = parseInt(document.getElementById('pf-cost').value, 10);
+  const stockRaw = document.getElementById('pf-stock').value.trim();
+  const stock = stockRaw === '' ? null : parseInt(stockRaw, 10);
+  const is_active = document.getElementById('pf-active').checked;
+  const file = document.getElementById('pf-image').files[0];
+
+  if (!name) return showMessage('Nome obrigatÃ³rio.', 'error');
+  if (!points_cost || points_cost <= 0) return showMessage('Custo deve ser maior que zero.', 'error');
+
+  try {
+    let image_url = editingPrizeImageUrl;
+    if (file) {
+      const path = `prizes/${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+      const { error: upErr } = await db.storage.from(BUCKET).upload(path, file, { upsert: true });
+      if (upErr) throw upErr;
+      image_url = db.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+    }
+    const payload = { name, description: description || null, points_cost, stock, is_active, image_url };
+    if (editingPrizeId) {
+      const { error } = await db.from('academy_prizes').update(payload).eq('id', editingPrizeId);
+      if (error) throw error;
+      showMessage('PrÃªmio atualizado!', 'success');
+    } else {
+      payload.created_by = currentUser.id;
+      const { error } = await db.from('academy_prizes').insert(payload);
+      if (error) throw error;
+      showMessage('PrÃªmio criado!', 'success');
+    }
+    closePrizeForm();
+    await renderPrizesView();
+  } catch (e) { showMessage('Erro: ' + e.message, 'error'); }
+}
+async function deletePrize(prizeId) {
+  const p = prizesCache.find(x => x.id === prizeId);
+  if (!p) return;
+  if (!confirm(`Excluir o prÃªmio "${p.name}"?\n\nResgates antigos serÃ£o mantidos no histÃ³rico.`)) return;
+  try {
+    const { error } = await db.from('academy_prizes').delete().eq('id', prizeId);
+    if (error) throw error;
+    showMessage('PrÃªmio excluÃ­do.', 'success');
+    await renderPrizesView();
+  } catch (e) { showMessage('Erro: ' + e.message, 'error'); }
+}
+
+// ---------- RESGATE ----------
+async function openRedeemModal(prizeId) {
+  const prize = prizesCache.find(p => p.id === prizeId);
+  if (!prize) return;
+  redeemTargetPrize = prize;
+  document.getElementById('redeem-subtitle').textContent = `${prize.name} Â· ${prize.points_cost} pts`;
+  document.getElementById('redeem-notes').value = '';
+  document.getElementById('redeem-warning').classList.add('hidden');
+  document.getElementById('redeem-confirm-btn').disabled = false;
+
+  // Carrega colaboradores
+  const sel = document.getElementById('redeem-user-select');
+  sel.innerHTML = '<option>Carregandoâ€¦</option>';
+  const { data: profiles } = await db.from('profiles')
+    .select('id, full_name, email, sector, role').order('full_name');
+  const allowed = ['employee', 'colaborador', 'supervisor'];
+  const list = (profiles || []).filter(p => allowed.includes((p.role || '').toLowerCase()));
+
+  sel.innerHTML = '<option value="">â€” Selecione â€”</option>' +
+    list.map(p => `<option value="${p.id}">${escapeHtml(p.full_name || p.email)}${p.sector ? ' â€” ' + escapeHtml(p.sector) : ''}</option>`).join('');
+  sel.onchange = onRedeemUserChange;
+
+  document.getElementById('redeem-user-info').textContent = 'Selecione um colaborador para ver o saldo.';
+  document.getElementById('redeem-modal').classList.remove('hidden');
+}
+
+async function onRedeemUserChange() {
+  const userId = document.getElementById('redeem-user-select').value;
+  const infoBox = document.getElementById('redeem-user-info');
+  const warn = document.getElementById('redeem-warning');
+  const btn = document.getElementById('redeem-confirm-btn');
+
+  if (!userId) {
+    infoBox.textContent = 'Selecione um colaborador para ver o saldo.';
+    warn.classList.add('hidden');
+    btn.disabled = false;
+    redeemUserBalance = null;
+    return;
+  }
+
+  infoBox.textContent = 'Consultando saldoâ€¦';
+  redeemUserBalance = await getUserPointsBalance(userId);
+
+  const custo = redeemTargetPrize.points_cost;
+  const saldo = redeemUserBalance.disponivel;
+  const ok = saldo >= custo;
+
+  infoBox.innerHTML = `
+    <div style="display:flex; justify-content:space-between; gap:10px;">
+      <span>Saldo disponÃ­vel:</span>
+      <strong style="color:${ok ? 'var(--verde)' : 'var(--cde-vermelho)'};">${saldo} pts</strong>
+    </div>
+    <div style="display:flex; justify-content:space-between; gap:10px; margin-top:4px;">
+      <span>Custo do prÃªmio:</span>
+      <strong>${custo} pts</strong>
+    </div>
+    <div style="display:flex; justify-content:space-between; gap:10px; margin-top:8px; padding-top:8px; border-top:1px dashed var(--cinza-borda);">
+      <span>Saldo apÃ³s resgate:</span>
+      <strong style="color:${ok ? 'var(--cde-laranja-escuro)' : 'var(--cde-vermelho)'};">${saldo - custo} pts</strong>
+    </div>`;
+
+  if (ok) { warn.classList.add('hidden'); btn.disabled = false; }
+  else { warn.classList.remove('hidden'); btn.disabled = true; }
+}
+
+function closeRedeemModal() {
+  document.getElementById('redeem-modal').classList.add('hidden');
+  redeemTargetPrize = null;
+  redeemUserBalance = null;
+}
+
+async function confirmRedemption() {
+  if (!redeemTargetPrize || !redeemUserBalance) return;
+  const userId = document.getElementById('redeem-user-select').value;
+  if (!userId) return showMessage('Selecione um colaborador.', 'error');
+
+  const prize = redeemTargetPrize;
+  const notes = document.getElementById('redeem-notes').value.trim();
+
+  if (redeemUserBalance.disponivel < prize.points_cost) {
+    return showMessage('Saldo insuficiente.', 'error');
+  }
+  if (!confirm(`Confirmar resgate de "${prize.name}" (${prize.points_cost} pts)?\n\nO saldo do colaborador serÃ¡ reduzido.`)) return;
+
+  const btn = document.getElementById('redeem-confirm-btn');
+  btn.disabled = true; btn.textContent = 'Processandoâ€¦';
+
+  try {
+    // 1. Registra o resgate
+    const { error: redErr } = await db.from('academy_redemptions').insert({
+      user_id: userId,
+      prize_id: prize.id,
+      prize_name: prize.name,
+      points_spent: prize.points_cost,
+      notes: notes || null,
+      status: 'pending',
+      created_by: currentUser.id,
+      created_by_name: currentProfile.full_name || currentUser.email
+    });
+    if (redErr) throw redErr;
+
+    // 2. Baixa o estoque (se controlado)
+    if (prize.stock !== null && prize.stock > 0) {
+      await db.from('academy_prizes').update({ stock: prize.stock - 1 }).eq('id', prize.id);
+    }
+
+    // 3. Se foi para o prÃ³prio usuÃ¡rio logado, atualiza a topbar
+    if (userId === currentUser.id) await loadTopbarPoints();
+
+    showMessage(`ðŸŽ "${prize.name}" resgatado! -${prize.points_cost} pts.`, 'success');
+    closeRedeemModal();
+    await renderPrizesView();
+  } catch (e) {
+    showMessage('Erro: ' + e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Confirmar Resgate';
+  }
+}
+
+// ==================== CADASTRO DE USUÃRIOS ====================
+function openNewUserModal() {
+  document.getElementById('nu-name').value = '';
+  document.getElementById('nu-email').value = '';
+  document.getElementById('nu-password').value = '';
+  document.getElementById('nu-password2').value = '';
+  document.getElementById('nu-position').value = '';
+  document.getElementById('nu-sector').value = '';
+  document.getElementById('nu-role').value = 'employee';
+  document.getElementById('nu-is-professor').checked = false;
+  document.getElementById('nu-is-master').checked = false;
+
+  const btn = document.getElementById('nu-save-btn');
+  btn.disabled = false;
+  btn.textContent = 'Criar usuÃ¡rio';
+
+  document.getElementById('new-user-modal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('nu-name').focus(), 100);
+}
+
+function closeNewUserModal() {
+  document.getElementById('new-user-modal').classList.add('hidden');
+}
+
+async function createNewUser() {
+  const fullName  = document.getElementById('nu-name').value.trim();
+  const email     = document.getElementById('nu-email').value.trim().toLowerCase();
+  const password  = document.getElementById('nu-password').value;
+  const password2 = document.getElementById('nu-password2').value;
+  const position  = document.getElementById('nu-position').value.trim();
+  const sector    = document.getElementById('nu-sector').value || null;
+  const role      = document.getElementById('nu-role').value;
+  const isProfessor = document.getElementById('nu-is-professor').checked;
+  const isMaster    = document.getElementById('nu-is-master').checked;
+
+  // ValidaÃ§Ãµes
+  if (!fullName) return showMessage('Nome completo Ã© obrigatÃ³rio.', 'error');
+  if (!email) return showMessage('E-mail Ã© obrigatÃ³rio.', 'error');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showMessage('E-mail invÃ¡lido.', 'error');
+  if (!password || password.length < 6) return showMessage('A senha deve ter ao menos 6 caracteres.', 'error');
+  if (password !== password2) return showMessage('As senhas nÃ£o conferem.', 'error');
+
+  const btn = document.getElementById('nu-save-btn');
+  btn.disabled = true;
+  btn.textContent = 'Criandoâ€¦';
+
+  try {
+    // 1) Cria o usuÃ¡rio no Supabase Auth (client temporÃ¡rio, nÃ£o afeta a sessÃ£o atual)
+    const { data: signUpData, error: signUpErr } = await dbSignup.auth.signUp({
+      email,
+      password,
+      options: {
+        data: { full_name: fullName, position, sector, role }
+      }
+    });
+
+    if (signUpErr) throw signUpErr;
+    const newUserId = signUpData?.user?.id;
+    if (!newUserId) throw new Error('NÃ£o foi possÃ­vel obter o ID do usuÃ¡rio criado.');
+
+    // 2) Cria o perfil na tabela profiles
+    const { error: profErr } = await db.from('profiles').insert({
+      id: newUserId,
+      full_name: fullName,
+      email,
+      position: position || null,
+      sector,
+      role,
+      is_professor: isProfessor,
+      is_master: isMaster,
+      avatar_url: null
+    });
+    if (profErr) throw profErr;
+
+    // 3) Limpeza preventiva da sessÃ£o temporÃ¡ria
+    try { await dbSignup.auth.signOut(); } catch (e) { /* silent */ }
+
+    showMessage(`âœ… ${fullName} cadastrado com sucesso!`, 'success');
+    closeNewUserModal();
+
+    // Se a tela de matrÃ­culas estiver aberta, atualiza a lista de colaboradores
+    const enrollModal = document.getElementById('enroll-modal');
+    if (enrollModal && !enrollModal.classList.contains('hidden')) {
+      await loadEnrollUserSelect();
+    }
+  } catch (e) {
+    console.error('Erro ao criar usuÃ¡rio:', e);
+    let msg = e.message || 'Erro desconhecido';
+    if (/already registered|already been registered|User already/i.test(msg))
+      msg = 'Este e-mail jÃ¡ estÃ¡ cadastrado no sistema.';
+    else if (/Password should be/i.test(msg))
+      msg = 'Senha muito fraca. Use ao menos 6 caracteres com letras e nÃºmeros.';
+    else if (/invalid email/i.test(msg))
+      msg = 'E-mail invÃ¡lido.';
+    showMessage('Erro: ' + msg, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Criar usuÃ¡rio';
+  }
+}
+
+// ==================== INIT ====================
+db.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') window.location.href = PDI_URL; });
+
+document.getElementById('course-modal')?.addEventListener('click', e => { if (e.target.id === 'course-modal') closeCourseModal(); });
+document.getElementById('course-form-modal')?.addEventListener('click', e => { if (e.target.id === 'course-form-modal') closeCourseForm(); });
+document.getElementById('module-form-modal')?.addEventListener('click', e => { if (e.target.id === 'module-form-modal') closeModuleForm(); });
+document.getElementById('lesson-form-modal')?.addEventListener('click', e => { if (e.target.id === 'lesson-form-modal') closeLessonForm(); });
+document.getElementById('quiz-modal')?.addEventListener('click', e => { if (e.target.id === 'quiz-modal') closeQuizEditor(); });
+document.getElementById('enroll-modal')?.addEventListener('click', e => { if (e.target.id === 'enroll-modal') closeEnrollModal(); });
+document.getElementById('certificate-modal')?.addEventListener('click', e => { if (e.target.id === 'certificate-modal') closeCertificateModal(); });
+document.getElementById('notifications-modal')?.addEventListener('click', e => { if (e.target.id === 'notifications-modal') closeNotificationsModal(); });
+document.getElementById('new-notification-modal')?.addEventListener('click', e => { if (e.target.id === 'new-notification-modal') closeNewNotificationForm(); });
+document.getElementById('points-adjust-modal')?.addEventListener('click', e => {
+  if (e.target.id === 'points-adjust-modal') closePointsAdjustModal();
+});
+
+document.getElementById('prize-form-modal')?.addEventListener('click', e => {
+  if (e.target.id === 'prize-form-modal') closePrizeForm();
+});
+document.getElementById('redeem-modal')?.addEventListener('click', e => {
+  if (e.target.id === 'redeem-modal') closeRedeemModal();
+});
+
+document.getElementById('new-user-modal')?.addEventListener('click', e => {
+  if (e.target.id === 'new-user-modal') closeNewUserModal();
+});
+
+document.getElementById('new-user-modal')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    const btn = document.getElementById('nu-save-btn');
+    if (btn && !btn.disabled) createNewUser();
+  }
+});
+
+initTheme();
+
+boot();
+
+
+// ==================== BIBLIOTECA ====================
+// Adicione PDFs e TXTs diretamente em academy/biblioteca/ no GitHub.
+// NÃ£o requer tabela, bucket ou alteraÃ§Ã£o nas permissÃµes do Supabase.
+const LIBRARY_API = 'https://api.github.com/repos/montero01/pdicde/contents/academy/biblioteca';
+let libraryFiles = null;
+let libraryPending = null;
+let libraryQuery = '';
+let libraryType = '';
+
+async function renderLibraryView() {
+  const main = document.getElementById('main-content');
+  main.innerHTML = `<section class="cde-library">
+    <header class="library-heading"><div><h1>ðŸ“– Biblioteca</h1>
+    <p>Materiais de consulta disponÃ­veis para todos os colaboradores.</p></div>
+    <button class="btn-secondary" id="library-refresh">â†» Atualizar</button></header>
+    <div class="library-toolbar">
+      <label>Buscar material<input id="library-query" type="search" placeholder="Nome do arquivoâ€¦" maxlength="150"></label>
+      <label>Formato<select id="library-type"><option value="">Todos</option><option value="pdf">PDF</option><option value="txt">Texto (TXT)</option></select></label>
+    </div>
+    <p id="library-status" role="status" aria-live="polite">Carregando materiaisâ€¦</p>
+    <div id="library-results" class="library-grid"></div>
+  </section>`;
+  document.getElementById('library-query').value = libraryQuery;
+  document.getElementById('library-type').value = libraryType;
+  document.getElementById('library-query').addEventListener('input', event => {
+    libraryQuery = event.target.value; paintLibraryFiles();
+  });
+  document.getElementById('library-type').addEventListener('change', event => {
+    libraryType = event.target.value; paintLibraryFiles();
+  });
+  document.getElementById('library-refresh').addEventListener('click', () => {
+    libraryFiles = null; renderLibraryView();
+  });
+  try {
+    if (libraryFiles === null) {
+      if (!libraryPending) {
+        libraryPending = (async () => {
+          const response = await fetch(LIBRARY_API, {headers: {Accept: 'application/vnd.github+json'}});
+          if (response.status === 404) return [];
+          if (response.status === 403 || response.status === 429) {
+            throw new Error('O limite temporÃ¡rio de consultas foi atingido. Aguarde alguns minutos e clique em Atualizar.');
+          }
+          if (!response.ok) throw new Error('NÃ£o foi possÃ­vel consultar os materiais. Tente atualizar novamente.');
+          const entries = await response.json();
+          if (!Array.isArray(entries)) throw new Error('A pasta da biblioteca nÃ£o pÃ´de ser lida.');
+          if (entries.length >= 1000) throw new Error('A pasta atingiu o limite de listagem. Organize o acervo antes de adicionar novos arquivos.');
+          return entries.filter(file => file.type === 'file' && /\.(pdf|txt)$/i.test(file.name))
+            .map(file => ({name: file.name, size: file.size,
+              type: file.name.split('.').pop().toLowerCase(),
+              url: new URL('biblioteca/' + encodeURIComponent(file.name), document.baseURI).href}))
+            .sort((a,b) => a.name.localeCompare(b.name, 'pt-BR', {numeric: true}));
+        })();
+      }
+      try { libraryFiles = await libraryPending; } finally { libraryPending = null; }
+    }
+    if (currentView === 'library') paintLibraryFiles();
+  } catch (error) {
+    if (currentView !== 'library') return;
+    document.getElementById('library-status').textContent = error.message || 'Falha ao carregar a biblioteca.';
+  }
+}
+
+function paintLibraryFiles() {
+  const status = document.getElementById('library-status');
+  const results = document.getElementById('library-results');
+  if (!status || !results || libraryFiles === null) return;
+  const normalize = text => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  const query = normalize(libraryQuery.trim());
+  const files = libraryFiles.filter(file => (!libraryType || file.type === libraryType) && normalize(file.name).includes(query));
+  status.textContent = libraryFiles.length === 0 ? 'Nenhum material publicado ainda.' :
+    files.length === 0 ? 'Nenhum material encontrado para esta busca.' :
+    `${files.length} de ${libraryFiles.length} materiais`;
+  results.innerHTML = files.map(file => {
+    const title = file.name.replace(/\.(pdf|txt)$/i, '').replace(/[_-]+/g, ' ');
+    const size = file.size < 1024 * 1024 ? `${(file.size / 1024).toLocaleString('pt-BR', {maximumFractionDigits: 1})} KB` :
+      `${(file.size / 1024 / 1024).toLocaleString('pt-BR', {maximumFractionDigits: 1})} MB`;
+    return `<article class="library-card"><div class="library-file-icon" aria-hidden="true">${file.type === 'pdf' ? 'ðŸ“„' : 'ðŸ“'}</div>
+      <span class="library-badge">${file.type.toUpperCase()} Â· ${size}</span>
+      <h2>${escapeHtml(title)}</h2><p>${escapeHtml(file.name)}</p>
+      <div class="library-actions"><a class="btn-primary" href="${escapeHtml(file.url)}" target="_blank" rel="noopener noreferrer">Abrir â†—</a>
+      <a class="btn-secondary" href="${escapeHtml(file.url)}" download="${escapeHtml(file.name)}">Baixar â†“</a></div></article>`;
+  }).join('');
+}
